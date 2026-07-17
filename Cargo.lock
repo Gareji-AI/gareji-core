@@ -516,6 +516,7 @@ dependencies = [
  "clap",
  "gareji-contracts",
  "gareji-core",
+ "serde",
  "serde_json",
  "tempfile",
 ]

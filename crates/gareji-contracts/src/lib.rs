@@ -97,6 +97,10 @@ pub enum CoreErrorCode {
     ProjectNotFound,
     /// The Work item is unknown to an attached Board Adapter.
     WorkItemNotFound,
+    /// Board owns the item but its state cannot be selected as active work.
+    WorkItemNotEligible,
+    /// The configured local Board Adapter is unavailable.
+    BoardUnavailable,
     /// The execution workspace is not connected.
     WorkspaceNotConnected,
     /// The checkpoint does not exist.

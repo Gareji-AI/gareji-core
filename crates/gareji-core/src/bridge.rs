@@ -10,6 +10,7 @@ use gareji_contracts::{
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::board::{BoardActiveWorkAssessment, BoardPort, BoardPortError, UnavailableBoard};
 use crate::progress::{
     DeliveryStatus, DeliveryTarget, ProgressCheckpoint, ProgressError, ProgressRecorder,
 };
@@ -17,6 +18,7 @@ use crate::registry::{project_view, ProjectRegistry, RegistryError};
 
 /// Deep Module serving bounded local transport operations from one durable database.
 pub struct CoreBridge {
+    board: Box<dyn BoardPort>,
     registry: ProjectRegistry,
     progress: ProgressRecorder,
 }
@@ -24,8 +26,17 @@ pub struct CoreBridge {
 impl CoreBridge {
     /// Open the Core bridge over one application-data SQLite file.
     pub fn open_sqlite(path: impl AsRef<Path>) -> Result<Self, CoreBridgeOpenError> {
+        Self::open_sqlite_with_board(path, Box::<UnavailableBoard>::default())
+    }
+
+    /// Open Core with an explicit Board Adapter at the active-work assessment seam.
+    pub fn open_sqlite_with_board(
+        path: impl AsRef<Path>,
+        board: Box<dyn BoardPort>,
+    ) -> Result<Self, CoreBridgeOpenError> {
         let path = path.as_ref();
         Ok(Self {
+            board,
             registry: ProjectRegistry::open_sqlite(path)?,
             progress: ProgressRecorder::open_sqlite(path)?,
         })
@@ -97,6 +108,19 @@ impl CoreBridge {
                     .get(&project_id)
                     .map_err(CoreFailure::from_registry)?;
                 require_grant(&project.grants, ProjectGrant::SelectActiveWork)?;
+                match self
+                    .board
+                    .assess_active_work(&project_id, &work_item_id)
+                    .map_err(CoreFailure::from_board)?
+                {
+                    BoardActiveWorkAssessment::Eligible => {}
+                    BoardActiveWorkAssessment::Ineligible => {
+                        return Err(CoreFailure {
+                            code: CoreErrorCode::WorkItemNotEligible,
+                            message: "Work item state is not eligible for active work",
+                        });
+                    }
+                }
                 let result = self
                     .registry
                     .set_active_work_item(&project_id, &work_item_id)
@@ -212,6 +236,24 @@ impl CoreFailure {
             RegistryError::CreateDirectory { .. }
             | RegistryError::Storage { .. }
             | RegistryError::Serialization { .. } => Self::internal(),
+        }
+    }
+
+    const fn from_board(error: BoardPortError) -> Self {
+        match error {
+            BoardPortError::ProjectNotFound => Self {
+                code: CoreErrorCode::ProjectNotFound,
+                message: "project was not found or is not visible in Board",
+            },
+            BoardPortError::WorkItemNotFound => Self {
+                code: CoreErrorCode::WorkItemNotFound,
+                message: "Work item was not found in the requested project",
+            },
+            BoardPortError::Unavailable => Self {
+                code: CoreErrorCode::BoardUnavailable,
+                message: "Gareji Board is unavailable",
+            },
+            BoardPortError::InvalidResponse => Self::internal(),
         }
     }
 
@@ -347,13 +389,33 @@ mod tests {
         }
     }
 
+    struct StaticBoard {
+        assessment: Result<BoardActiveWorkAssessment, BoardPortError>,
+    }
+
+    impl BoardPort for StaticBoard {
+        fn assess_active_work(
+            &self,
+            _project_id: &str,
+            _work_item_id: &str,
+        ) -> Result<BoardActiveWorkAssessment, BoardPortError> {
+            self.assessment
+        }
+    }
+
     fn bridge_with_project() -> (tempfile::TempDir, CoreBridge) {
         let directory = tempdir().unwrap();
         let path = directory.path().join("gareji.sqlite");
         let mut registry = ProjectRegistry::open_sqlite(&path).unwrap();
         registry.register(&registration()).unwrap();
         drop(registry);
-        let bridge = CoreBridge::open_sqlite(path).unwrap();
+        let bridge = CoreBridge::open_sqlite_with_board(
+            path,
+            Box::new(StaticBoard {
+                assessment: Ok(BoardActiveWorkAssessment::Eligible),
+            }),
+        )
+        .unwrap();
         (directory, bridge)
     }
 
@@ -424,6 +486,81 @@ mod tests {
             CoreBridgeResponse::Error {
                 error: CoreBridgeError {
                     code: CoreErrorCode::PermissionDenied,
+                    ..
+                },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn bridge_does_not_store_board_ineligible_active_work() {
+        let (directory, mut bridge) = bridge_with_project();
+        let selected = bridge.handle(request(
+            "req-eligible",
+            CoreBridgeOperation::SetActiveWorkItem {
+                project_id: "core".to_owned(),
+                work_item_id: "CORE-1".to_owned(),
+            },
+        ));
+        assert!(matches!(selected, CoreBridgeResponse::Ok { .. }));
+        drop(bridge);
+
+        let path = directory.path().join("gareji.sqlite");
+        let mut denied_bridge = CoreBridge::open_sqlite_with_board(
+            &path,
+            Box::new(StaticBoard {
+                assessment: Ok(BoardActiveWorkAssessment::Ineligible),
+            }),
+        )
+        .unwrap();
+        let denied = denied_bridge.handle(request(
+            "req-ineligible",
+            CoreBridgeOperation::SetActiveWorkItem {
+                project_id: "core".to_owned(),
+                work_item_id: "CORE-2".to_owned(),
+            },
+        ));
+        assert!(matches!(
+            denied,
+            CoreBridgeResponse::Error {
+                error: CoreBridgeError {
+                    code: CoreErrorCode::WorkItemNotEligible,
+                    ..
+                },
+                ..
+            }
+        ));
+        drop(denied_bridge);
+
+        let registry = ProjectRegistry::open_sqlite(path).unwrap();
+        assert_eq!(
+            registry.active_work_item("core").unwrap().as_deref(),
+            Some("CORE-1")
+        );
+    }
+
+    #[test]
+    fn bridge_reports_board_unavailable_without_falling_back() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("gareji.sqlite");
+        let mut registry = ProjectRegistry::open_sqlite(&path).unwrap();
+        registry.register(&registration()).unwrap();
+        drop(registry);
+        let mut bridge = CoreBridge::open_sqlite(path).unwrap();
+
+        let response = bridge.handle(request(
+            "req-board-unavailable",
+            CoreBridgeOperation::SetActiveWorkItem {
+                project_id: "core".to_owned(),
+                work_item_id: "CORE-1".to_owned(),
+            },
+        ));
+        assert!(matches!(
+            response,
+            CoreBridgeResponse::Error {
+                error: CoreBridgeError {
+                    code: CoreErrorCode::BoardUnavailable,
                     ..
                 },
                 ..

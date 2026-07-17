@@ -1,5 +1,7 @@
 //! Local Gareji Core bridge and project registration CLI.
 
+mod board_adapter;
+
 use std::env;
 use std::fs;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
@@ -14,6 +16,8 @@ use gareji_contracts::{
 };
 use gareji_core::bridge::CoreBridge;
 use gareji_core::registry::ProjectRegistry;
+
+use crate::board_adapter::ProcessBoardAdapter;
 
 const MAX_BRIDGE_LINE_BYTES: usize = 1_048_576;
 
@@ -112,7 +116,10 @@ fn list_projects(database: &PathBuf) -> Result<()> {
 }
 
 fn run_bridge(database: &PathBuf) -> Result<()> {
-    let mut bridge = CoreBridge::open_sqlite(database)?;
+    let mut bridge = CoreBridge::open_sqlite_with_board(
+        database,
+        Box::new(ProcessBoardAdapter::from_environment()),
+    )?;
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = BufReader::new(stdin.lock());
