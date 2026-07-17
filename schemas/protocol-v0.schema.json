@@ -1,0 +1,300 @@
+{
+  "compact_envelope": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "CompactArtifact": {
+        "description": "Artifact path reference.",
+        "properties": {
+          "path": {
+            "description": "Relative or host-generated sidecar path.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "CompactDiagnostic": {
+        "description": "Host diagnostic entry (safe; never raw plugin stderr).",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/FailureCategory"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Failure category when present."
+          },
+          "code": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/FailureCode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Detailed failure code when present."
+          },
+          "message": {
+            "description": "Host-authored message.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
+      "CompactOutcome": {
+        "description": "Compact run outcome.",
+        "oneOf": [
+          {
+            "description": "Successful run.",
+            "enum": [
+              "ok"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Failed run with category/code in diagnostics.",
+            "enum": [
+              "error"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "FailureCategory": {
+        "description": "Stable failure category used for exit-code mapping during 0.x.",
+        "oneOf": [
+          {
+            "description": "CLI / input validation failures (exit 2).",
+            "enum": [
+              "input"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Framing / RPC / schema protocol failures (exit 10).",
+            "enum": [
+              "protocol"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Plugin path/spawn/application failures (exit 11).",
+            "enum": [
+              "plugin"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Initialize/run/exit-grace timeouts (exit 12).",
+            "enum": [
+              "timeout"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Host cancellation / Ctrl-C (exit 12).",
+            "enum": [
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Audit sidecar persistence failures (exit 13).",
+            "enum": [
+              "audit"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Unexpected host invariants (exit 70).",
+            "enum": [
+              "internal"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "FailureCode": {
+        "description": "Detailed failure code for operator diagnosis. May evolve with changelog before 1.0.",
+        "enum": [
+          "input_missing",
+          "input_empty",
+          "input_too_large",
+          "input_read_failed",
+          "input_invalid_json",
+          "input_schema_violation",
+          "plugin_not_found",
+          "plugin_spawn_failed",
+          "plugin_write_failed",
+          "initialize_timeout",
+          "run_timeout",
+          "protocol_version_mismatch",
+          "invalid_framing",
+          "invalid_json",
+          "schema_violation",
+          "plugin_application_error",
+          "unexpected_eof",
+          "frame_too_large",
+          "rpc_id_mismatch",
+          "unexpected_output",
+          "plugin_exited",
+          "plugin_exit_timeout",
+          "host_interrupted",
+          "sidecar_too_large",
+          "sidecar_write_failed",
+          "stdout_write_failed",
+          "host_internal_error"
+        ],
+        "type": "string"
+      }
+    },
+    "description": "Exactly one compact JSON object printed to stdout.",
+    "properties": {
+      "artifacts": {
+        "description": "Sidecar references.",
+        "items": {
+          "$ref": "#/definitions/CompactArtifact"
+        },
+        "type": "array"
+      },
+      "diagnostics": {
+        "description": "Safe diagnostics.",
+        "items": {
+          "$ref": "#/definitions/CompactDiagnostic"
+        },
+        "type": "array"
+      },
+      "outcome": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/CompactOutcome"
+          }
+        ],
+        "description": "Success or error."
+      },
+      "payload": {
+        "description": "Opaque plugin payload on success; empty object on failure."
+      },
+      "run_id": {
+        "description": "Host-generated run id.",
+        "type": "string"
+      },
+      "schema_version": {
+        "description": "Host envelope schema/date version.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "artifacts",
+      "diagnostics",
+      "outcome",
+      "payload",
+      "run_id",
+      "schema_version"
+    ],
+    "title": "CompactEnvelope",
+    "type": "object"
+  },
+  "initialize_params": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "description": "`initialize` request params.",
+    "properties": {
+      "capabilities": {
+        "description": "Host capability names (opaque extras allowed as strings).",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "host_version": {
+        "description": "Host SemVer.",
+        "type": "string"
+      },
+      "protocol_versions": {
+        "description": "Host-supported protocol versions.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "capabilities",
+      "host_version",
+      "protocol_versions"
+    ],
+    "title": "InitializeParams",
+    "type": "object"
+  },
+  "initialize_result": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "description": "`initialize` result.",
+    "properties": {
+      "capabilities": {
+        "description": "Plugin capability names.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "plugin_version": {
+        "description": "Plugin SemVer.",
+        "type": "string"
+      },
+      "protocol_version": {
+        "description": "Selected wire protocol version.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "capabilities",
+      "plugin_version",
+      "protocol_version"
+    ],
+    "title": "InitializeResult",
+    "type": "object"
+  },
+  "protocol_version": "2026-07-15",
+  "run_params": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "description": "`agentmesh.run` params.",
+    "properties": {
+      "input": {
+        "description": "Opaque plugin-owned input JSON."
+      },
+      "run_id": {
+        "description": "Host-generated run id.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "input",
+      "run_id"
+    ],
+    "title": "RunParams",
+    "type": "object"
+  },
+  "run_result": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "description": "`agentmesh.run` result.",
+    "properties": {
+      "payload": {
+        "description": "Opaque plugin-owned payload JSON."
+      }
+    },
+    "required": [
+      "payload"
+    ],
+    "title": "RunResult",
+    "type": "object"
+  }
+}

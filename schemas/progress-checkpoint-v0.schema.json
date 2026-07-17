@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gareji.dev/schemas/progress-checkpoint-v0.schema.json",
+  "title": "Gareji Progress Checkpoint v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "checkpoint_id",
+    "recorded_at",
+    "project_id",
+    "work_item_id",
+    "execution_workspace_id",
+    "source",
+    "actor",
+    "outcome",
+    "summary",
+    "changed_paths",
+    "git",
+    "verification",
+    "evidence_refs",
+    "recommended_state"
+  ],
+  "properties": {
+    "schema_version": {"const": "gareji.progress-checkpoint.v0"},
+    "checkpoint_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "work_item_id": {"type": ["string", "null"], "maxLength": 128},
+    "execution_workspace_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "source": {
+      "type": "string",
+      "enum": ["runner", "mcp", "manual_cli", "codex_stop_hook", "git_post_commit"]
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {"type": "string", "enum": ["human", "agent", "system"]},
+        "id": {"type": "string", "minLength": 1, "maxLength": 128}
+      }
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["progress", "completed", "needs_review", "blocked", "failed", "no_action"]
+    },
+    "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "changed_paths": {
+      "type": "array",
+      "maxItems": 200,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512,
+        "pattern": "^(?![A-Za-z]:[\\\\/])(?![\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+$"
+      }
+    },
+    "git": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["head", "branch", "dirty"],
+      "properties": {
+        "head": {"type": ["string", "null"], "maxLength": 128},
+        "branch": {"type": ["string", "null"], "maxLength": 256},
+        "dirty": {"type": "boolean"}
+      }
+    },
+    "verification": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status", "evidence_ref"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 256},
+          "status": {"type": "string", "enum": ["passed", "failed", "not_run", "unknown"]},
+          "evidence_ref": {"type": ["string", "null"], "maxLength": 1024}
+        }
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 1024}
+    },
+    "recommended_state": {
+      "type": ["string", "null"],
+      "enum": ["backlog", "todo", "in_progress", "in_review", "blocked", "done", "cancelled", null]
+    }
+  }
+}

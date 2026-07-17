@@ -1,0 +1,7 @@
+{
+  "operation_id": "run-demo-001",
+  "requested": [
+    "context.read",
+    "workspace.write"
+  ]
+}

@@ -1,0 +1,36 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local run artifacts
+.agentmesh/
+*.log
+/dist/
+/upload/
+
+# Coverage / tooling
+/coverage/
+/lcov.info
+/tarpaulin-report.html
+/.deny/
+/.cargo-deny/
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Ralph / local agent state (not part of Phase 0 product)
+.ralph/
+.pi/

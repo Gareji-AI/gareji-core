@@ -1,0 +1,19 @@
+[package]
+name = "agentmesh-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "AgentMesh Phase 0 wire protocol types and JSON Schema"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+
+[lints]
+workspace = true

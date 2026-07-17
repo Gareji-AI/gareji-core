@@ -1,0 +1,16 @@
+[package]
+name = "agentmesh-fixture-support"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Test-only fixture lifecycle helpers (depends on proto only)"
+
+[dependencies]
+agentmesh-proto = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,25 @@
+[package]
+name = "agentmesh-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "AgentMesh Phase 0 one-shot CLI"
+
+[[bin]]
+name = "agentmesh"
+path = "src/main.rs"
+
+[dependencies]
+agentmesh-app = { workspace = true }
+agentmesh-host = { workspace = true }
+agentmesh-proto = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

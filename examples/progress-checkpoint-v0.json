@@ -1,0 +1,36 @@
+{
+  "schema_version": "gareji.progress-checkpoint.v0",
+  "checkpoint_id": "checkpoint-demo-001",
+  "recorded_at": "2026-07-17T12:00:00+09:00",
+  "project_id": "core",
+  "work_item_id": "CORE-1",
+  "execution_workspace_id": "core-local",
+  "source": "runner",
+  "actor": {
+    "type": "agent",
+    "id": "implementer"
+  },
+  "outcome": "needs_review",
+  "summary": "Implemented Capability Policy and durable Progress Recorder foundations.",
+  "changed_paths": [
+    "crates/gareji-core/src/policy.rs",
+    "crates/gareji-core/src/progress/mod.rs"
+  ],
+  "git": {
+    "head": null,
+    "branch": "main",
+    "dirty": true
+  },
+  "verification": [
+    {
+      "name": "gareji-core tests",
+      "status": "passed",
+      "evidence_ref": "run://local/gareji-core-tests"
+    }
+  ],
+  "evidence_refs": [
+    "file://docs/capability-policy-v0.md",
+    "file://docs/progress-recorder-v0.md"
+  ],
+  "recommended_state": "in_review"
+}

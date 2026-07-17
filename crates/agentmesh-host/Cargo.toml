@@ -1,0 +1,29 @@
+[package]
+name = "agentmesh-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "AgentMesh Phase 0 process supervision, framing, lifecycle, and audit"
+
+[dependencies]
+agentmesh-proto = { workspace = true }
+anyhow = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "agentmesh-fixture-stderr-success"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "agentmesh-fixture-stderr-success"
+path = "src/main.rs"
+
+[dependencies]
+agentmesh-fixture-support = { workspace = true }
+agentmesh-proto = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

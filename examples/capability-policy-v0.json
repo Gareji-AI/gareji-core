@@ -1,0 +1,17 @@
+{
+  "allowed": [
+    "context.read",
+    "progress.write",
+    "workspace.write",
+    "public.write",
+    "secret.read",
+    "destructive.write",
+    "production.write"
+  ],
+  "approval_required": [
+    "public.write",
+    "secret.read",
+    "destructive.write",
+    "production.write"
+  ]
+}

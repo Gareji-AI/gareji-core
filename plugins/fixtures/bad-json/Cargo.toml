@@ -1,0 +1,16 @@
+[package]
+name = "agentmesh-fixture-bad-json"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "agentmesh-fixture-bad-json"
+path = "src/main.rs"
+
+[dependencies]
+agentmesh-fixture-support = { workspace = true }
+
+[lints]
+workspace = true
