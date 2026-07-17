@@ -9,8 +9,11 @@ The protocol discriminator is `gareji.core-bridge.v0`. Requests contain a caller
 - `set_active_work_item`
 - `record_progress`
 - `get_checkpoint_status`
+- `list_progress`
 
 Responses repeat the protocol and request identities and contain either an operation result or a stable bounded error. Raw internal errors, credentials, transcripts, diffs, and SQLite details are never returned.
+
+`list_progress` returns accepted checkpoints in newest-first intake order for one registered project and optional Work item. The caller supplies a limit from 1 through 100 and may continue with the returned checkpoint cursor. Each result includes the immutable checkpoint, current per-destination delivery state, attempt count, and the latest bounded delivery error when present. Reading requires the same `write_progress` project grant as recording and inspecting one checkpoint.
 
 The first transport Adapter starts the Core binary as a child and keeps it alive. Closing the parent pipe ends the bridge process; v0 does not install or require a background daemon.
 

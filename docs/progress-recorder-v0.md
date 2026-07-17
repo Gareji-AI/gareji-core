@@ -7,6 +7,7 @@ Status: implemented in `gareji-core::progress`.
 ```text
 record(checkpoint, delivery_targets) -> record receipt
 status(checkpoint_id) -> checkpoint + per-destination delivery status
+list(project, optional work item, cursor, limit) -> newest-first checkpoint page
 sync_pending(projector) -> delivery summary
 ```
 
@@ -29,7 +30,7 @@ Projectors must return messages that are already safe to persist and display. Th
 
 ## Storage
 
-`open_sqlite(path)` creates the parent application-data directory, enables foreign keys and WAL mode, applies a five-second busy timeout, and initializes the v0 tables. `open_in_memory()` runs the same implementation for conformance tests and disposable demos.
+`open_sqlite(path)` creates the parent application-data directory, enables foreign keys and WAL mode, applies a five-second busy timeout, and initializes the v0 tables. `open_in_memory()` runs the same implementation for conformance tests and disposable demos. Project and Work item scope are stored as indexed ledger columns so Board-facing history reads do not scan checkpoint JSON. Existing v1 databases are backfilled locally when first opened.
 
 SQLite details remain inside the Module. Board, MCP, Runner, CLI, Hook, and Knowledge Adapters use the Recorder Interface and never issue its SQL directly.
 
