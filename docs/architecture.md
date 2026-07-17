@@ -41,6 +41,10 @@ The in-memory SQLite constructor is the local-substitutable test surface for the
 
 `gareji-core::bridge::CoreBridge` composes the Registry and Progress Recorder behind the versioned `gareji.core-bridge.v0` Interface. The `gareji-core bridge` command exposes it to one trusted parent process over bounded newline-delimited JSON. Transports reuse one child process and never access Core SQLite tables directly.
 
+### Board active-work Adapter
+
+`gareji-core::board::BoardPort` asks Board for one attributed active-work assessment before the Registry changes its operational selection. The production process Adapter reuses `gareji-board bridge`; test Adapters exercise the same Interface. Core does not interpret Board Work item states and fails closed when Board is unavailable.
+
 ## Planned internal Modules
 
 ### Runner seam

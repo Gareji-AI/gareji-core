@@ -14,6 +14,8 @@ Responses repeat the protocol and request identities and contain either an opera
 
 The first transport Adapter starts the Core binary as a child and keeps it alive. Closing the parent pipe ends the bridge process; v0 does not install or require a background daemon.
 
+`set_active_work_item` also starts one `gareji-board bridge` child lazily and reuses it. Board must confirm the project relationship and active-work eligibility before Core changes its operational reference. `GAREJI_BOARD_BIN` and `GAREJI_BOARD_DB` may select explicit local Board installations; an unavailable Board fails closed without disabling unrelated Core operations.
+
 ## Project registration
 
 Existing projects are attached explicitly from a reviewed JSON file:

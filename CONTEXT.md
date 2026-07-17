@@ -50,6 +50,10 @@ _Avoid_: Board project model, inferred repository scanner
 The versioned local Interface through which a trusted parent transport uses Registry and Progress Recorder behavior without accessing Core storage directly.
 _Avoid_: daemon, generic remote API
 
+**Board Adapter**:
+The replaceable Core role that obtains Board-owned active-work assessments before Core stores an operational Work item reference.
+_Avoid_: Work item state owner, Board database reader
+
 ## Integration
 
 **App**:

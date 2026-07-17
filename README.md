@@ -22,6 +22,7 @@ Plugins are trusted, absolute native executables. Gareji Core does not sandbox p
 
 - **Implemented:** capability and approval policy evaluated before a Run.
 - **Implemented:** Progress Recorder backed by SQLite with per-destination deliveries.
+- **Implemented:** fail-closed Board assessment before active Work item selection.
 - **Next:** a stable Runner seam for Codex and future execution Adapters.
 - **Later:** optional Cloud synchronization that cannot bypass local policy.
 
