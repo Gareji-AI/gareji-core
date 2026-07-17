@@ -4,15 +4,16 @@ use std::path::Path;
 
 use gareji_contracts::{
     CheckpointStatusResult, CoreBridgeError, CoreBridgeOperation, CoreBridgeRequest,
-    CoreBridgeResponse, CoreErrorCode, DeliveryView, ListProjectsResult, ProjectContextResult,
-    ProjectGrant, RecordProgressResult, CORE_BRIDGE_PROTOCOL_VERSION,
+    CoreBridgeResponse, CoreErrorCode, DeliveryView, ListProgressResult, ListProjectsResult,
+    ProjectContextResult, ProjectGrant, RecordProgressResult, CORE_BRIDGE_PROTOCOL_VERSION,
 };
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::board::{BoardActiveWorkAssessment, BoardPort, BoardPortError, UnavailableBoard};
 use crate::progress::{
-    DeliveryStatus, DeliveryTarget, ProgressCheckpoint, ProgressError, ProgressRecorder,
+    CheckpointQuery, CheckpointStatus, DeliveryStatus, DeliveryTarget, ProgressCheckpoint,
+    ProgressError, ProgressRecorder,
 };
 use crate::registry::{project_view, ProjectRegistry, RegistryError};
 
@@ -160,6 +161,7 @@ impl CoreBridge {
                             destination_id: delivery.destination_id,
                             status: delivery_status(delivery.status).to_owned(),
                             attempts: delivery.attempts,
+                            last_error: delivery.last_error,
                         })
                         .collect(),
                 })
@@ -174,20 +176,38 @@ impl CoreBridge {
                     .get(&status.checkpoint.project_id)
                     .map_err(CoreFailure::from_registry)?;
                 require_grant(&project.grants, ProjectGrant::WriteProgress)?;
-                let checkpoint =
-                    serde_json::to_value(status.checkpoint).map_err(|_| CoreFailure::internal())?;
-                encode(&CheckpointStatusResult {
-                    checkpoint_id,
-                    checkpoint,
-                    deliveries: status
-                        .deliveries
-                        .into_iter()
-                        .map(|delivery| DeliveryView {
-                            destination_id: delivery.destination_id,
-                            status: delivery_status(delivery.status).to_owned(),
-                            attempts: delivery.attempts,
-                        })
-                        .collect(),
+                let result = checkpoint_status_result(status)?;
+                debug_assert_eq!(result.checkpoint_id, checkpoint_id);
+                encode(&result)
+            }
+            CoreBridgeOperation::ListProgress {
+                project_id,
+                work_item_id,
+                before_checkpoint_id,
+                limit,
+            } => {
+                let project = self
+                    .registry
+                    .get(&project_id)
+                    .map_err(CoreFailure::from_registry)?;
+                require_grant(&project.grants, ProjectGrant::WriteProgress)?;
+                let page = self
+                    .progress
+                    .list(&CheckpointQuery {
+                        project_id,
+                        work_item_id,
+                        before_checkpoint_id,
+                        limit,
+                    })
+                    .map_err(CoreFailure::from_progress)?;
+                let checkpoints = page
+                    .checkpoints
+                    .into_iter()
+                    .map(checkpoint_status_result)
+                    .collect::<Result<Vec<_>, _>>()?;
+                encode(&ListProgressResult {
+                    checkpoints,
+                    next_cursor: page.next_cursor,
                 })
             }
         }
@@ -286,6 +306,28 @@ fn require_grant(grants: &[ProjectGrant], required: ProjectGrant) -> Result<(), 
             message: "project does not grant this operation",
         })
     }
+}
+
+fn checkpoint_status_result(
+    status: CheckpointStatus,
+) -> Result<CheckpointStatusResult, CoreFailure> {
+    let checkpoint_id = status.checkpoint.checkpoint_id.clone();
+    let checkpoint =
+        serde_json::to_value(status.checkpoint).map_err(|_| CoreFailure::internal())?;
+    Ok(CheckpointStatusResult {
+        checkpoint_id,
+        checkpoint,
+        deliveries: status
+            .deliveries
+            .into_iter()
+            .map(|delivery| DeliveryView {
+                destination_id: delivery.destination_id,
+                status: delivery_status(delivery.status).to_owned(),
+                attempts: delivery.attempts,
+                last_error: delivery.last_error,
+            })
+            .collect(),
+    })
 }
 
 fn validate_optional_id(value: Option<&str>) -> Result<(), CoreFailure> {
@@ -461,6 +503,23 @@ mod tests {
             },
         ));
         assert!(matches!(status, CoreBridgeResponse::Ok { .. }));
+
+        let listed = bridge.handle(request(
+            "req-5",
+            CoreBridgeOperation::ListProgress {
+                project_id: "core".to_owned(),
+                work_item_id: Some("CORE-1".to_owned()),
+                before_checkpoint_id: None,
+                limit: 10,
+            },
+        ));
+        let CoreBridgeResponse::Ok { result, .. } = listed else {
+            panic!("expected successful progress list");
+        };
+        let listed: ListProgressResult = serde_json::from_value(result).unwrap();
+        assert_eq!(listed.checkpoints.len(), 1);
+        assert_eq!(listed.checkpoints[0].checkpoint_id, "cp-bridge-1");
+        assert!(listed.next_cursor.is_none());
     }
 
     #[test]

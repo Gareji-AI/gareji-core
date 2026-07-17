@@ -49,6 +49,17 @@ pub enum CoreBridgeOperation {
         /// Stable checkpoint identity.
         checkpoint_id: String,
     },
+    /// Read a bounded newest-first page of accepted Progress Checkpoints.
+    ListProgress {
+        /// Stable project identity.
+        project_id: String,
+        /// Optional explicit Work item filter.
+        work_item_id: Option<String>,
+        /// Return checkpoints older than this checkpoint identity.
+        before_checkpoint_id: Option<String>,
+        /// Maximum number of checkpoints to return, from 1 through 100.
+        limit: u16,
+    },
 }
 
 /// One response returned by the local Core bridge.
@@ -224,6 +235,8 @@ pub struct DeliveryView {
     pub status: String,
     /// Projection attempt count.
     pub attempts: u32,
+    /// Latest bounded delivery failure or conflict summary.
+    pub last_error: Option<String>,
 }
 
 /// Result of durable Progress Checkpoint intake.
@@ -246,4 +259,13 @@ pub struct CheckpointStatusResult {
     pub checkpoint: Value,
     /// Independent destination delivery states.
     pub deliveries: Vec<DeliveryView>,
+}
+
+/// Result of reading a bounded page of accepted Progress Checkpoints.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ListProgressResult {
+    /// Checkpoints in newest-first intake order.
+    pub checkpoints: Vec<CheckpointStatusResult>,
+    /// Cursor for the next older page when more records exist.
+    pub next_cursor: Option<String>,
 }

@@ -294,6 +294,28 @@ pub struct CheckpointStatus {
     pub deliveries: Vec<DeliveryReceipt>,
 }
 
+/// Bounded newest-first query over the immutable checkpoint ledger.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckpointQuery {
+    /// Stable Board project identity.
+    pub project_id: String,
+    /// Optional explicit Work item filter.
+    pub work_item_id: Option<String>,
+    /// Return records older than this checkpoint identity.
+    pub before_checkpoint_id: Option<String>,
+    /// Maximum number of checkpoints to return, from 1 through 100.
+    pub limit: u16,
+}
+
+/// One bounded page from the immutable checkpoint ledger.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckpointPage {
+    /// Checkpoints in newest-first intake order.
+    pub checkpoints: Vec<CheckpointStatus>,
+    /// Cursor for the next older page when more records exist.
+    pub next_cursor: Option<String>,
+}
+
 /// Result returned by a Knowledge projection Adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProjectionOutcome {

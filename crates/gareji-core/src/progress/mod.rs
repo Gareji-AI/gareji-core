@@ -12,10 +12,10 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub use types::{
-    ActorType, CheckpointActor, CheckpointOutcome, CheckpointSource, CheckpointStatus,
-    CheckpointValidationError, DeliveryReceipt, DeliveryStatus, DeliveryTarget, GitState,
-    ProgressCheckpoint, ProjectionOutcome, RecordReceipt, SyncSummary, VerificationRecord,
-    VerificationStatus, WorkItemState, PROGRESS_CHECKPOINT_SCHEMA_VERSION,
+    ActorType, CheckpointActor, CheckpointOutcome, CheckpointPage, CheckpointQuery,
+    CheckpointSource, CheckpointStatus, CheckpointValidationError, DeliveryReceipt, DeliveryStatus,
+    DeliveryTarget, GitState, ProgressCheckpoint, ProjectionOutcome, RecordReceipt, SyncSummary,
+    VerificationRecord, VerificationStatus, WorkItemState, PROGRESS_CHECKPOINT_SCHEMA_VERSION,
 };
 
 const MAX_DELIVERY_MESSAGE: usize = 1_000;
@@ -74,7 +74,9 @@ impl ProgressRecorder {
                    checkpoint_id TEXT PRIMARY KEY,
                    fingerprint TEXT NOT NULL,
                    payload_json TEXT NOT NULL,
-                   recorded_at TEXT NOT NULL
+                   recorded_at TEXT NOT NULL,
+                   project_id TEXT,
+                   work_item_id TEXT
                  );
                  CREATE TABLE IF NOT EXISTS gareji_checkpoint_deliveries (
                    checkpoint_id TEXT NOT NULL,
@@ -86,8 +88,19 @@ impl ProgressRecorder {
                    FOREIGN KEY (checkpoint_id) REFERENCES gareji_checkpoints(checkpoint_id)
                  );
                  CREATE INDEX IF NOT EXISTS gareji_delivery_retry
-                   ON gareji_checkpoint_deliveries(status, checkpoint_id, destination_id);
-                 PRAGMA user_version = 1;",
+                   ON gareji_checkpoint_deliveries(status, checkpoint_id, destination_id);",
+            )
+            .map_err(|source| ProgressError::Storage { source })?;
+        ensure_checkpoint_scope_columns(&connection)?;
+        connection
+            .execute_batch(
+                "UPDATE gareji_checkpoints
+                   SET project_id = json_extract(payload_json, '$.project_id'),
+                       work_item_id = json_extract(payload_json, '$.work_item_id')
+                 WHERE project_id IS NULL;
+                 CREATE INDEX IF NOT EXISTS gareji_checkpoints_by_scope
+                   ON gareji_checkpoints(project_id, work_item_id);
+                 PRAGMA user_version = 2;",
             )
             .map_err(|source| ProgressError::Storage { source })?;
         Ok(Self { connection })
@@ -156,13 +169,15 @@ impl ProgressRecorder {
             transaction
                 .execute(
                     "INSERT INTO gareji_checkpoints
-                       (checkpoint_id, fingerprint, payload_json, recorded_at)
-                     VALUES (?1, ?2, ?3, ?4)",
+                       (checkpoint_id, fingerprint, payload_json, recorded_at, project_id, work_item_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                     params![
                         checkpoint.checkpoint_id,
                         fingerprint,
                         payload_json,
-                        checkpoint.recorded_at
+                        checkpoint.recorded_at,
+                        checkpoint.project_id,
+                        checkpoint.work_item_id
                     ],
                 )
                 .map_err(|source| ProgressError::Storage { source })?;
@@ -211,6 +226,144 @@ impl ProgressRecorder {
         Ok(CheckpointStatus {
             checkpoint,
             deliveries,
+        })
+    }
+
+    /// Read a bounded newest-first page for one project and optional Work item.
+    pub fn list(&self, query: &CheckpointQuery) -> Result<CheckpointPage, ProgressError> {
+        validate_bounded_id("project_id", &query.project_id)?;
+        if let Some(work_item_id) = &query.work_item_id {
+            validate_bounded_id("work_item_id", work_item_id)?;
+        }
+        if let Some(checkpoint_id) = &query.before_checkpoint_id {
+            validate_bounded_id("before_checkpoint_id", checkpoint_id)?;
+        }
+        if !(1..=100).contains(&query.limit) {
+            return Err(CheckpointValidationError {
+                field: "limit",
+                message: "must be from 1 through 100",
+            }
+            .into());
+        }
+
+        let fetch_limit = i64::from(query.limit) + 1;
+        let mut statement = self
+            .connection
+            .prepare(
+                "WITH page AS (
+                   SELECT rowid AS ledger_rowid, checkpoint_id, payload_json
+                   FROM gareji_checkpoints
+                   WHERE project_id = ?1
+                     AND (?2 IS NULL OR work_item_id = ?2)
+                     AND (
+                       ?3 IS NULL OR rowid < (
+                         SELECT rowid FROM gareji_checkpoints WHERE checkpoint_id = ?3
+                       )
+                     )
+                   ORDER BY rowid DESC
+                   LIMIT ?4
+                 )
+                 SELECT
+                   p.ledger_rowid,
+                   p.checkpoint_id,
+                   p.payload_json,
+                   d.destination_id,
+                   d.status,
+                   d.attempts,
+                   d.last_error
+                 FROM page p
+                 LEFT JOIN gareji_checkpoint_deliveries d
+                   ON d.checkpoint_id = p.checkpoint_id
+                 ORDER BY p.ledger_rowid DESC, d.destination_id",
+            )
+            .map_err(|source| ProgressError::Storage { source })?;
+        let rows = statement
+            .query_map(
+                params![
+                    query.project_id,
+                    query.work_item_id,
+                    query.before_checkpoint_id,
+                    fetch_limit
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<i64>>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                    ))
+                },
+            )
+            .map_err(|source| ProgressError::Storage { source })?;
+
+        let mut checkpoints: Vec<CheckpointStatus> = Vec::new();
+        let mut current_rowid = None;
+        for row in rows {
+            let (
+                ledger_rowid,
+                checkpoint_id,
+                payload_json,
+                destination_id,
+                raw_status,
+                attempts,
+                last_error,
+            ) = row.map_err(|source| ProgressError::Storage { source })?;
+            if current_rowid != Some(ledger_rowid) {
+                let checkpoint: ProgressCheckpoint = serde_json::from_str(&payload_json)
+                    .map_err(|source| ProgressError::Serialization { source })?;
+                if checkpoint.checkpoint_id != checkpoint_id {
+                    return Err(ProgressError::CorruptState {
+                        message: "checkpoint identity does not match stored payload",
+                    });
+                }
+                checkpoints.push(CheckpointStatus {
+                    checkpoint,
+                    deliveries: Vec::new(),
+                });
+                current_rowid = Some(ledger_rowid);
+            }
+            if let (Some(destination_id), Some(raw_status), Some(attempts)) =
+                (destination_id, raw_status, attempts)
+            {
+                let status = DeliveryStatus::from_db(&raw_status).ok_or_else(|| {
+                    ProgressError::CorruptState {
+                        message: "unknown delivery status",
+                    }
+                })?;
+                let attempts =
+                    u32::try_from(attempts).map_err(|_| ProgressError::CorruptState {
+                        message: "delivery attempts out of range",
+                    })?;
+                checkpoints
+                    .last_mut()
+                    .ok_or(ProgressError::CorruptState {
+                        message: "delivery exists without a checkpoint",
+                    })?
+                    .deliveries
+                    .push(DeliveryReceipt {
+                        destination_id,
+                        status,
+                        attempts,
+                        last_error,
+                    });
+            }
+        }
+
+        let has_more = checkpoints.len() > usize::from(query.limit);
+        checkpoints.truncate(usize::from(query.limit));
+        let next_cursor = has_more
+            .then(|| {
+                checkpoints
+                    .last()
+                    .map(|status| status.checkpoint.checkpoint_id.clone())
+            })
+            .flatten();
+        Ok(CheckpointPage {
+            checkpoints,
+            next_cursor,
         })
     }
 
@@ -397,17 +550,44 @@ fn validate_targets(targets: &[DeliveryTarget]) -> Result<(), CheckpointValidati
 }
 
 fn validate_lookup_id(checkpoint_id: &str) -> Result<(), CheckpointValidationError> {
-    if checkpoint_id.is_empty() {
+    validate_bounded_id("checkpoint_id", checkpoint_id)
+}
+
+fn validate_bounded_id(field: &'static str, value: &str) -> Result<(), CheckpointValidationError> {
+    if value.is_empty() {
         return Err(CheckpointValidationError {
-            field: "checkpoint_id",
+            field,
             message: "is shorter than minimum length",
         });
     }
-    if checkpoint_id.chars().count() > 128 {
+    if value.chars().count() > 128 {
         return Err(CheckpointValidationError {
-            field: "checkpoint_id",
+            field,
             message: "exceeds maximum length",
         });
+    }
+    Ok(())
+}
+
+fn ensure_checkpoint_scope_columns(connection: &Connection) -> Result<(), ProgressError> {
+    for column in ["project_id", "work_item_id"] {
+        let exists: bool = connection
+            .query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM pragma_table_info('gareji_checkpoints') WHERE name = ?1
+                 )",
+                [column],
+                |row| row.get(0),
+            )
+            .map_err(|source| ProgressError::Storage { source })?;
+        if !exists {
+            connection
+                .execute(
+                    &format!("ALTER TABLE gareji_checkpoints ADD COLUMN {column} TEXT"),
+                    [],
+                )
+                .map_err(|source| ProgressError::Storage { source })?;
+        }
     }
     Ok(())
 }
@@ -533,6 +713,109 @@ mod tests {
             recorder.record(&changed, &targets()),
             Err(ProgressError::CheckpointConflict { .. })
         ));
+    }
+
+    #[test]
+    fn list_is_scoped_newest_first_and_cursor_paginated() {
+        let mut recorder = ProgressRecorder::open_in_memory().unwrap();
+        for id in ["cp-page-1", "cp-page-2", "cp-page-3"] {
+            recorder.record(&checkpoint(id), &targets()).unwrap();
+        }
+        let mut other_work_item = checkpoint("cp-other-work");
+        other_work_item.work_item_id = Some("CORE-2".to_owned());
+        recorder.record(&other_work_item, &targets()).unwrap();
+        let mut other_project = checkpoint("cp-other-project");
+        other_project.project_id = "board".to_owned();
+        recorder.record(&other_project, &targets()).unwrap();
+
+        let first = recorder
+            .list(&CheckpointQuery {
+                project_id: "core".to_owned(),
+                work_item_id: Some("CORE-1".to_owned()),
+                before_checkpoint_id: None,
+                limit: 2,
+            })
+            .unwrap();
+        assert_eq!(
+            first
+                .checkpoints
+                .iter()
+                .map(|status| status.checkpoint.checkpoint_id.as_str())
+                .collect::<Vec<_>>(),
+            ["cp-page-3", "cp-page-2"]
+        );
+        assert_eq!(first.next_cursor.as_deref(), Some("cp-page-2"));
+        assert!(first
+            .checkpoints
+            .iter()
+            .all(|status| status.deliveries.len() == 2));
+
+        let second = recorder
+            .list(&CheckpointQuery {
+                project_id: "core".to_owned(),
+                work_item_id: Some("CORE-1".to_owned()),
+                before_checkpoint_id: first.next_cursor,
+                limit: 2,
+            })
+            .unwrap();
+        assert_eq!(second.checkpoints.len(), 1);
+        assert_eq!(second.checkpoints[0].checkpoint.checkpoint_id, "cp-page-1");
+        assert!(second.next_cursor.is_none());
+    }
+
+    #[test]
+    fn opening_a_v1_database_backfills_checkpoint_scope() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("gareji-v1.sqlite");
+        let legacy_checkpoint = checkpoint("cp-legacy");
+        let payload_json = serde_json::to_string(&legacy_checkpoint).unwrap();
+        let fingerprint = hex_sha256(payload_json.as_bytes());
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE gareji_checkpoints (
+                   checkpoint_id TEXT PRIMARY KEY,
+                   fingerprint TEXT NOT NULL,
+                   payload_json TEXT NOT NULL,
+                   recorded_at TEXT NOT NULL
+                 );
+                 CREATE TABLE gareji_checkpoint_deliveries (
+                   checkpoint_id TEXT NOT NULL,
+                   destination_id TEXT NOT NULL,
+                   status TEXT NOT NULL,
+                   attempts INTEGER NOT NULL,
+                   last_error TEXT,
+                   PRIMARY KEY (checkpoint_id, destination_id)
+                 );
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO gareji_checkpoints
+                   (checkpoint_id, fingerprint, payload_json, recorded_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    legacy_checkpoint.checkpoint_id,
+                    fingerprint,
+                    payload_json,
+                    legacy_checkpoint.recorded_at
+                ],
+            )
+            .unwrap();
+        drop(connection);
+
+        let recorder = ProgressRecorder::open_sqlite(path).unwrap();
+        let page = recorder
+            .list(&CheckpointQuery {
+                project_id: "core".to_owned(),
+                work_item_id: None,
+                before_checkpoint_id: None,
+                limit: 10,
+            })
+            .unwrap();
+        assert_eq!(page.checkpoints.len(), 1);
+        assert_eq!(page.checkpoints[0].checkpoint.checkpoint_id, "cp-legacy");
     }
 
     #[test]
