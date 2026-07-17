@@ -1,0 +1,26 @@
+# Core bridge v0
+
+`gareji-core bridge` is a local child-process Interface for trusted Gareji transports. It reads and writes one compact JSON object per line, bounds each request to 1 MiB, and keeps Registry and Progress Recorder storage inside Core.
+
+The protocol discriminator is `gareji.core-bridge.v0`. Requests contain a caller-assigned `request_id` and exactly one of these operations:
+
+- `list_projects`
+- `get_project_context`
+- `set_active_work_item`
+- `record_progress`
+- `get_checkpoint_status`
+
+Responses repeat the protocol and request identities and contain either an operation result or a stable bounded error. Raw internal errors, credentials, transcripts, diffs, and SQLite details are never returned.
+
+The first transport Adapter starts the Core binary as a child and keeps it alive. Closing the parent pipe ends the bridge process; v0 does not install or require a background daemon.
+
+## Project registration
+
+Existing projects are attached explicitly from a reviewed JSON file:
+
+```text
+gareji-core --database ./gareji.sqlite3 project register --file ./project.json
+gareji-core --database ./gareji.sqlite3 project list
+```
+
+See [`examples/project-registration-v0.json`](../examples/project-registration-v0.json). Registration is an idempotent create-or-replace operation. It does not mutate a repository, install Hooks, infer Work items, or publish anything.

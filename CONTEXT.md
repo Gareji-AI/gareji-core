@@ -42,6 +42,14 @@ _Avoid_: public log, task state
 The Core Module that durably accepts an immutable Progress Checkpoint and tracks its independent projection deliveries.
 _Avoid_: Board transition, Hook
 
+**Project Registry**:
+The Core Module that stores explicit operational project-to-workspace configuration, grants, and active Work item references without owning Board state.
+_Avoid_: Board project model, inferred repository scanner
+
+**Core bridge**:
+The versioned local Interface through which a trusted parent transport uses Registry and Progress Recorder behavior without accessing Core storage directly.
+_Avoid_: daemon, generic remote API
+
 ## Integration
 
 **App**:

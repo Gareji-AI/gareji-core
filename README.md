@@ -13,6 +13,8 @@ The current Rust crates retain the `agentmesh-*` package names while the public 
 - deterministic Capability Policy evaluation through a trusted Approval Source
 - durable, idempotent Progress Checkpoint recording in SQLite
 - independent projection delivery, partial success, conflict detection, and retry
+- explicit project registration and per-project active-work references
+- a bounded local Core bridge reusable by MCP, Runner, CLI, and trusted Hooks
 
 Plugins are trusted, absolute native executables. Gareji Core does not sandbox plugins, discover plugins from a registry, or support remote plugins.
 
@@ -23,7 +25,7 @@ Plugins are trusted, absolute native executables. Gareji Core does not sandbox p
 - **Next:** a stable Runner seam for Codex and future execution Adapters.
 - **Later:** optional Cloud synchronization that cannot bypass local policy.
 
-See [the architecture](docs/architecture.md), [Capability Policy v0](docs/capability-policy-v0.md), and [Progress Recorder v0](docs/progress-recorder-v0.md) for current and planned behavior.
+See [the architecture](docs/architecture.md), [Capability Policy v0](docs/capability-policy-v0.md), [Progress Recorder v0](docs/progress-recorder-v0.md), and [Core bridge v0](docs/core-bridge-v0.md) for current and planned behavior.
 
 ## Boundaries
 

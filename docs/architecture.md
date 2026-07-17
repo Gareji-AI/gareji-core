@@ -33,15 +33,19 @@ This Host Interface remains independently testable and does not learn Board or p
 
 The in-memory SQLite constructor is the local-substitutable test surface for the same implementation used with an application-data file.
 
+### Project and active-work registry
+
+`gareji-core::registry::ProjectRegistry` persists explicit project-to-workspace registrations, user grants, configured context references, projection destination identities, and one optional active Work item reference per project. It does not own or transition Board Work item state.
+
+### Local Core bridge
+
+`gareji-core::bridge::CoreBridge` composes the Registry and Progress Recorder behind the versioned `gareji.core-bridge.v0` Interface. The `gareji-core bridge` command exposes it to one trusted parent process over bounded newline-delimited JSON. Transports reuse one child process and never access Core SQLite tables directly.
+
 ## Planned internal Modules
 
 ### Runner seam
 
 Codex Runner is the first Adapter. A future runtime must satisfy the same execution Interface and return the same Core Run result rather than adding provider fields to shared envelopes.
-
-### Project and active-work registry
-
-Persist project-to-workspace mappings and active-work references behind a narrow registry Interface. Board keeps Work item semantics; Core stores only the operational references needed by Runner, MCP, CLI, and trusted lifecycle Hooks.
 
 ## Invariants
 
