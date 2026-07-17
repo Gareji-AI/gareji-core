@@ -1,5 +1,6 @@
 //! Local Gareji Core bridge and project registration CLI.
 
+use std::env;
 use std::fs;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
@@ -7,7 +8,6 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use directories::ProjectDirs;
 use gareji_contracts::{
     CoreBridgeError, CoreBridgeRequest, CoreBridgeResponse, CoreErrorCode, ProjectRegistration,
     CORE_BRIDGE_PROTOCOL_VERSION,
@@ -76,9 +76,22 @@ fn run(cli: Cli) -> Result<()> {
 }
 
 fn default_database_path() -> Result<PathBuf> {
-    let project_dirs = ProjectDirs::from("ai", "Gareji", "Gareji")
-        .context("could not resolve the local application-data directory")?;
-    Ok(project_dirs.data_local_dir().join("core.sqlite3"))
+    let base = if cfg!(windows) {
+        environment_path("LOCALAPPDATA")
+    } else if cfg!(target_os = "macos") {
+        environment_path("HOME").map(|path| path.join("Library/Application Support"))
+    } else {
+        environment_path("XDG_DATA_HOME")
+            .or_else(|| environment_path("HOME").map(|path| path.join(".local/share")))
+    }
+    .context("could not resolve the local application-data directory")?;
+    Ok(base.join("Gareji").join("core.sqlite3"))
+}
+
+fn environment_path(name: &str) -> Option<PathBuf> {
+    env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 fn register_project(database: &PathBuf, file: &PathBuf) -> Result<()> {

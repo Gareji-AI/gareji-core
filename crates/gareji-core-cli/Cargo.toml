@@ -13,7 +13,6 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-directories.workspace = true
 gareji-contracts.workspace = true
 gareji-core.workspace = true
 serde_json.workspace = true
