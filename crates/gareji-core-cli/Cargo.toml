@@ -1,21 +1,25 @@
 [package]
-name = "gareji-core"
+name = "gareji-core-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "gareji-core"
+path = "src/main.rs"
+
 [dependencies]
-chrono.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+directories.workspace = true
 gareji-contracts.workspace = true
-rusqlite.workspace = true
-serde.workspace = true
+gareji-core.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
+assert_cmd.workspace = true
 tempfile.workspace = true
 
 [lints]

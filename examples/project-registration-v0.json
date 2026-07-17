@@ -1,0 +1,26 @@
+{
+  "project_id": "sample-web",
+  "name": "Sample Web Project",
+  "execution_workspace": "workspace://sample-web",
+  "context_sources": [
+    "local-markdown"
+  ],
+  "grants": [
+    "read_context",
+    "select_active_work",
+    "write_progress"
+  ],
+  "sourced_context": [
+    {
+      "workspace_id": "sample-notes",
+      "source_id": "project-brief",
+      "freshness": "configured",
+      "content": "Ship a small accessible website and keep its progress notes current.",
+      "evidence_ref": null
+    }
+  ],
+  "delivery_targets": [
+    "local-json",
+    "local-markdown"
+  ]
+}
