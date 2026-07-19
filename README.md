@@ -14,7 +14,9 @@ The current Rust crates retain the `agentmesh-*` package names while the public 
 - durable, idempotent Progress Checkpoint recording in SQLite
 - independent projection delivery, partial success, conflict detection, and retry
 - explicit project registration and per-project active-work references
+- attributed context references returned without Core dereferencing local files
 - a bounded local Core bridge reusable by MCP, Runner, CLI, and trusted Hooks
+- an idempotent `gareji setup` flow for Core installation, project registration, and Codex Plugin installation
 
 Plugins are trusted, absolute native executables. Gareji Core does not sandbox plugins, discover plugins from a registry, or support remote plugins.
 
@@ -24,14 +26,39 @@ Plugins are trusted, absolute native executables. Gareji Core does not sandbox p
 - **Implemented:** Progress Recorder backed by SQLite with per-destination deliveries.
 - **Implemented:** bounded project and Work item progress history through the reusable Core bridge.
 - **Implemented:** fail-closed Board assessment before active Work item selection.
-- **Next:** a stable Runner seam for Codex and future execution Adapters.
+- **Implemented:** a policy-enforcing, runtime-neutral Runner seam with bounded requests and reports.
+- **Implemented:** the first external Runner Adapter using non-interactive Codex JSONL.
+- **Implemented:** a standalone first-run Setup Module with `setup`, `doctor`, and dry-run behavior.
 - **Later:** optional Cloud synchronization that cannot bypass local policy.
 
-See [the architecture](docs/architecture.md), [Capability Policy v0](docs/capability-policy-v0.md), [Progress Recorder v0](docs/progress-recorder-v0.md), and [Core bridge v0](docs/core-bridge-v0.md) for current and planned behavior.
+See [the architecture](docs/architecture.md), [First-run setup v0](docs/setup-v0.md), [Capability Policy v0](docs/capability-policy-v0.md), [Runner execution v0](docs/runner-execution-v0.md), [Codex Runner Adapter v0](docs/codex-runner-adapter-v0.md), [Progress Recorder v0](docs/progress-recorder-v0.md), and [Core bridge v0](docs/core-bridge-v0.md) for current and planned behavior.
+
+## First-run setup
+
+Release artifacts contain the two user-facing binaries, the local Marketplace, and the Gareji Progress Plugin in one directory. Extract the archive for your platform, inspect the plan, and then apply it:
+
+```powershell
+.\gareji setup --workspace "C:\absolute\path\to\project" --context "C:\absolute\path\to\project\PROJECT.md" --dry-run
+.\gareji setup --workspace "C:\absolute\path\to\project" --context "C:\absolute\path\to\project\PROJECT.md"
+.\gareji doctor --project-id project
+```
+
+For a source checkout, build the same layout locally:
+
+```powershell
+cargo build -p gareji-core-cli -p gareji-bootstrap
+target\debug\gareji setup --workspace "C:\absolute\path\to\project" --context "C:\absolute\path\to\project\PROJECT.md" --dry-run
+target\debug\gareji setup --workspace "C:\absolute\path\to\project" --context "C:\absolute\path\to\project\PROJECT.md"
+target\debug\gareji doctor --project-id project
+```
+
+Setup installs Core in the local application-data directory, registers reference-only Markdown context with no projection targets, adds the Gareji local Codex marketplace, and installs the Gareji Progress Plugin. Restart Codex after a changed installation and review the Stop Hook before trusting it.
+
+Maintainers can reproduce a release bundle and its clean-profile dry-run check with `python scripts/package_gareji.py --target <rust-target> --release-dir <release-directory> --output-dir dist --smoke-test`. Windows produces a ZIP; Linux and macOS produce a `tar.gz`. Every archive has a SHA-256 sidecar and an internal file manifest.
 
 ## Boundaries
 
-Gareji Core intentionally contains no Board-, tracker-, or knowledge-provider-specific task model. Domain payloads remain owned by callers and plugins. Gareji Board owns Work item state and portfolio policy; Runner Adapters own runtime translation. Do not add credentials, real service data, personal paths, or audit sidecars to this repository.
+Gareji Core intentionally contains no Board-, tracker-, or knowledge-provider-specific task model. Domain payloads remain owned by callers and plugins. Gareji Board owns Work item state and portfolio policy; Runner Adapters own runtime translation. A local Markdown path is project configuration, not a provider Adapter: Core returns the attributed reference and the trusted caller reads it with its normal filesystem access. Do not add credentials, real service data, personal paths, or audit sidecars to this repository.
 
 ## Development
 

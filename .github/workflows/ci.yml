@@ -33,6 +33,9 @@ jobs:
           toolchain: "1.97.0"
           targets: ${{ matrix.target }}
           components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
@@ -42,8 +45,23 @@ jobs:
         run: cargo clippy --workspace --all-targets --target ${{ matrix.target }} -- -D warnings
       - name: Test
         run: cargo test --workspace --target ${{ matrix.target }}
-      - name: Build the host and reference plugin
-        run: cargo build --release --target ${{ matrix.target }} -p agentmesh-cli -p agentmesh-fixture-echo
+      - name: Test Python integration surfaces
+        run: |
+          python -m unittest discover -s plugins/gareji-progress/tests -p "test_*.py"
+          python -m unittest discover -s scripts/tests -p "test_*.py"
+      - name: Build release binaries
+        run: cargo build --release --target ${{ matrix.target }} -p agentmesh-cli -p agentmesh-fixture-echo -p gareji-core-cli -p gareji-bootstrap
+      - name: Package and smoke-test Gareji
+        run: python scripts/package_gareji.py --target ${{ matrix.target }} --release-dir target/${{ matrix.target }}/release --output-dir dist --smoke-test
+      - name: Upload Gareji distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: gareji-${{ matrix.target }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
 
   security:
     runs-on: ubuntu-latest
