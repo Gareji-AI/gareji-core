@@ -486,6 +486,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gareji-codex-runner"
+version = "0.1.0"
+dependencies = [
+ "gareji-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "gareji-contracts"
 version = "0.1.0"
 dependencies = [
