@@ -35,6 +35,8 @@ The `gareji-core bridge` command serves bounded newline-delimited JSON over stdi
 - The Core bridge protocol is local and versioned; it is not a generic remote control surface.
 - Provider-backed context reads and Board Work item validation remain future Adapters rather than hidden behavior in the Registry.
 
+The provider-backed context-read consequence is narrowed by [ADR 0006](0006-treat-local-markdown-as-a-context-reference.md): an attributed local Markdown path is returned as configuration and does not require an Adapter. A future Adapter is justified only by provider-specific behavior. Board validation is unchanged.
+
 ## Rejected alternatives
 
 - Direct SQLite access from MCP: duplicates Core rules and state ownership.

@@ -15,12 +15,9 @@
       "workspace_id": "sample-notes",
       "source_id": "project-brief",
       "freshness": "configured",
-      "content": "Ship a small accessible website and keep its progress notes current.",
-      "evidence_ref": null
+      "content": null,
+      "evidence_ref": "C:\\absolute\\path\\to\\sample-web\\PROJECT.md"
     }
   ],
-  "delivery_targets": [
-    "local-json",
-    "local-markdown"
-  ]
+  "delivery_targets": []
 }

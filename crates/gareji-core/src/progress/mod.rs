@@ -650,7 +650,7 @@ mod tests {
                 destination_id: "json".to_owned(),
             },
             DeliveryTarget {
-                destination_id: "zettelkasten".to_owned(),
+                destination_id: "knowledge-projection".to_owned(),
             },
         ]
     }

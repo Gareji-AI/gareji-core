@@ -387,7 +387,7 @@ mod tests {
             project_id: "core".to_owned(),
             name: "Core".to_owned(),
             execution_workspace: "core-local".to_owned(),
-            context_sources: vec!["zettelkasten".to_owned()],
+            context_sources: vec!["local-markdown".to_owned()],
             grants: vec![
                 ProjectGrant::ReadContext,
                 ProjectGrant::SelectActiveWork,

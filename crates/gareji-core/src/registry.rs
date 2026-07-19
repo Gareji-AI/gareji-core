@@ -354,7 +354,7 @@ mod tests {
             project_id: "gareji-core".to_owned(),
             name: "Gareji Core".to_owned(),
             execution_workspace: "workspace://gareji-core".to_owned(),
-            context_sources: vec!["zettelkasten".to_owned()],
+            context_sources: vec!["local-markdown".to_owned()],
             grants: vec![
                 ProjectGrant::ReadContext,
                 ProjectGrant::SelectActiveWork,
@@ -367,7 +367,7 @@ mod tests {
                 content: Some("Build the local trust kernel.".to_owned()),
                 evidence_ref: None,
             }],
-            delivery_targets: vec!["local-json".to_owned(), "zettelkasten".to_owned()],
+            delivery_targets: vec!["local-json".to_owned(), "knowledge-projection".to_owned()],
         }
     }
 
@@ -420,5 +420,18 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn registration_accepts_reference_only_context_without_delivery_targets() {
+        let mut reference_only = registration();
+        reference_only.sourced_context[0].content = None;
+        reference_only.sourced_context[0].evidence_ref =
+            Some(r"C:\absolute\path\to\project\PROJECT.md".to_owned());
+        reference_only.delivery_targets.clear();
+        let mut registry = ProjectRegistry::open_in_memory().unwrap();
+
+        assert!(!registry.register(&reference_only).unwrap());
+        assert_eq!(registry.get("gareji-core").unwrap(), reference_only);
     }
 }
