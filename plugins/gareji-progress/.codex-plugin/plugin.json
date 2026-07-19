@@ -1,0 +1,21 @@
+{
+  "name": "gareji-progress",
+  "version": "0.1.4",
+  "description": "Record bounded Codex turn-end progress in the local Gareji Core ledger.",
+  "author": {
+    "name": "Gareji AI",
+    "url": "https://github.com/Gareji-AI/gareji-core"
+  },
+  "repository": "https://github.com/Gareji-AI/gareji-core",
+  "license": "Apache-2.0",
+  "keywords": ["codex", "progress", "local-first"],
+  "interface": {
+    "displayName": "Gareji Progress",
+    "shortDescription": "Record Codex turn-end progress locally.",
+    "longDescription": "Adds a non-blocking Stop Hook that records bounded Git evidence in the local Gareji Core progress ledger.",
+    "developerName": "Gareji AI",
+    "category": "Productivity",
+    "capabilities": ["Write"],
+    "defaultPrompt": "Show me how Gareji Progress captures this repository."
+  }
+}
