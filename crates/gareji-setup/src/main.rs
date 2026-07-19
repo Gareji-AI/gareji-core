@@ -7,15 +7,15 @@ use std::process::ExitCode;
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use gareji_bootstrap::{
-    default_data_dir, discover_marketplace_root, doctor, setup, DoctorRequest, SetupReport,
-    SetupRequest, StepStatus, SystemCommandRunner,
+    default_data_dir, discover_marketplace_root, doctor, setup, status, DoctorRequest, SetupReport,
+    SetupRequest, StatusReport, StatusRequest, StepStatus, SystemCommandRunner,
 };
 
 #[derive(Debug, Parser)]
 #[command(
     name = "gareji",
     version,
-    about = "Install, configure, and diagnose a local Gareji environment"
+    about = "Install, configure, and inspect a local Gareji environment"
 )]
 struct Cli {
     /// Emit one machine-readable JSON report.
@@ -31,6 +31,8 @@ enum Commands {
     Setup(SetupArgs),
     /// Diagnose the installed Core, registration, and Codex Plugin.
     Doctor(DoctorArgs),
+    /// Show project health, context references, and recent Codex progress.
+    Status(StatusArgs),
 }
 
 #[derive(Debug, Args)]
@@ -80,6 +82,22 @@ struct DoctorArgs {
     codex_bin: PathBuf,
 }
 
+#[derive(Debug, Args)]
+struct StatusArgs {
+    /// Registered project workspace. Defaults to the current directory.
+    #[arg(long, default_value = ".")]
+    workspace: PathBuf,
+    /// Override the Gareji application-data install directory.
+    #[arg(long)]
+    install_dir: Option<PathBuf>,
+    /// Codex CLI executable.
+    #[arg(long, default_value = "codex")]
+    codex_bin: PathBuf,
+    /// Maximum number of recent Progress Checkpoints to show.
+    #[arg(long, default_value_t = 5)]
+    limit: u16,
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match run(&cli) {
@@ -99,25 +117,45 @@ fn main() -> ExitCode {
 
 fn run(cli: &Cli) -> Result<bool> {
     let mut runner = SystemCommandRunner;
-    let report = match &cli.command {
+    match &cli.command {
         Commands::Setup(args) => {
             let request = setup_request(args)?;
-            setup(&request, &mut runner)?
+            let report = setup(&request, &mut runner)?;
+            print_setup_report(&report, cli.json)?;
+            Ok(report.healthy)
         }
-        Commands::Doctor(args) => doctor(
-            &DoctorRequest {
-                install_dir: args
-                    .install_dir
-                    .clone()
-                    .map_or_else(default_install_dir, Ok)?,
-                codex_binary: resolve_command(&args.codex_bin)?,
-                project_id: args.project_id.clone(),
-            },
-            &mut runner,
-        )?,
-    };
-    print_report(&report, cli.json)?;
-    Ok(report.healthy)
+        Commands::Doctor(args) => {
+            let report = doctor(
+                &DoctorRequest {
+                    install_dir: args
+                        .install_dir
+                        .clone()
+                        .map_or_else(default_install_dir, Ok)?,
+                    codex_binary: resolve_command(&args.codex_bin)?,
+                    project_id: args.project_id.clone(),
+                },
+                &mut runner,
+            )?;
+            print_setup_report(&report, cli.json)?;
+            Ok(report.healthy)
+        }
+        Commands::Status(args) => {
+            let report = status(
+                &StatusRequest {
+                    workspace: args.workspace.clone(),
+                    install_dir: args
+                        .install_dir
+                        .clone()
+                        .map_or_else(default_install_dir, Ok)?,
+                    codex_binary: resolve_command(&args.codex_bin)?,
+                    limit: args.limit,
+                },
+                &mut runner,
+            )?;
+            print_status_report(&report, cli.json)?;
+            Ok(report.health.healthy)
+        }
+    }
 }
 
 fn setup_request(args: &SetupArgs) -> Result<SetupRequest> {
@@ -180,7 +218,7 @@ fn resolve_command(command: &Path) -> Result<PathBuf> {
     which::which(command).with_context(|| format!("could not find {} on PATH", command.display()))
 }
 
-fn print_report(report: &SetupReport, json: bool) -> Result<()> {
+fn print_setup_report(report: &SetupReport, json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string(report)?);
         return Ok(());
@@ -189,18 +227,74 @@ fn print_report(report: &SetupReport, json: bool) -> Result<()> {
         println!("Gareji project: {project_id}");
     }
     for step in &report.steps {
-        let status = match step.status {
-            StepStatus::Ready => "ready",
-            StepStatus::Changed => "changed",
-            StepStatus::Planned => "planned",
-            StepStatus::Missing => "missing",
-        };
+        let status = step_status_label(step.status.clone());
         println!("[{status}] {}: {}", step.step, step.message);
     }
     if report.restart_codex {
         println!("Next: restart Codex, then review and trust the Gareji Progress Stop Hook.");
+    } else if report
+        .steps
+        .iter()
+        .any(|step| step.status == StepStatus::Planned)
+    {
+        println!("Next: rerun this command without --dry-run to apply the setup.");
+    } else if report.healthy && report.project_id.is_some() {
+        println!("Next: work in Codex, then run `gareji status` from the project workspace.");
     }
     Ok(())
+}
+
+fn print_status_report(report: &StatusReport, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string(report)?);
+        return Ok(());
+    }
+    println!("{}", report.project_name);
+    println!("Project: {}", report.project_id);
+    println!("Workspace: {}", human_windows_path(&report.workspace));
+    println!("Context references: {}", report.context_references);
+    println!();
+    println!("System");
+    for step in &report.health.steps {
+        let status = step_status_label(step.status.clone());
+        println!("  [{status}] {}", step.message);
+    }
+    println!();
+    println!("Recent Codex progress");
+    if report.recent_activity.is_empty() {
+        println!("  No progress recorded yet.");
+        println!("  Next: complete a Codex turn in this workspace.");
+        return Ok(());
+    }
+    for activity in &report.recent_activity {
+        println!(
+            "  {} [{}] {}",
+            activity.recorded_at, activity.outcome, activity.summary
+        );
+        for path in activity.changed_paths.iter().take(5) {
+            println!("    - {path}");
+        }
+        if activity.changed_paths.len() > 5 {
+            println!("    - ... and {} more", activity.changed_paths.len() - 5);
+        }
+    }
+    Ok(())
+}
+
+fn step_status_label(status: StepStatus) -> &'static str {
+    match status {
+        StepStatus::Ready => "ready",
+        StepStatus::Changed => "changed",
+        StepStatus::Planned => "planned",
+        StepStatus::Missing => "missing",
+    }
+}
+
+fn human_windows_path(path: &str) -> String {
+    if let Some(path) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{path}");
+    }
+    path.strip_prefix(r"\\?\").unwrap_or(path).to_owned()
 }
 
 fn core_binary_name() -> &'static str {
@@ -208,5 +302,23 @@ fn core_binary_name() -> &'static str {
         "gareji-core.exe"
     } else {
         "gareji-core"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn human_windows_path_removes_verbatim_prefixes() {
+        assert_eq!(
+            human_windows_path(r"\\?\C:\Garage\Project"),
+            r"C:\Garage\Project"
+        );
+        assert_eq!(
+            human_windows_path(r"\\?\UNC\server\share\Project"),
+            r"\\server\share\Project"
+        );
+        assert_eq!(human_windows_path("/work/project"), "/work/project");
     }
 }

@@ -17,6 +17,8 @@ Responses repeat the protocol and request identities and contain either an opera
 
 `list_progress` returns accepted checkpoints in newest-first intake order for one registered project and optional Work item. The caller supplies a limit from 1 through 100 and may continue with the returned checkpoint cursor. Each result includes the immutable checkpoint, current per-destination delivery state, attempt count, and the latest bounded delivery error when present. Reading requires the same `write_progress` project grant as recording and inspecting one checkpoint.
 
+For local operator tooling, `gareji-core progress list --project-id <id> --limit <1-100>` exposes the same operation as a bounded JSON result. The user-facing `gareji status` command consumes that Interface; it does not read SQLite directly.
+
 The first transport Adapter starts the Core binary as a child and keeps it alive. Closing the parent pipe ends the bridge process; v0 does not install or require a background daemon.
 
 `set_active_work_item` also starts one `gareji-board bridge` child lazily and reuses it. Board must confirm the project relationship and active-work eligibility before Core changes its operational reference. `GAREJI_BOARD_BIN` and `GAREJI_BOARD_DB` may select explicit local Board installations; an unavailable Board fails closed without disabling unrelated Core operations.

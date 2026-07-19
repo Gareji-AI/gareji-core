@@ -8,6 +8,7 @@ Status: implemented by the standalone `gareji-bootstrap` crate and its `gareji` 
 gareji setup --workspace <absolute-directory> --context <absolute-markdown> [--context ...]
 gareji setup ... --dry-run
 gareji doctor [--project-id <id>]
+gareji status [--workspace <directory>] [--limit <1-100>]
 ```
 
 Setup derives the project identity and display name from the workspace directory unless they are supplied explicitly. A non-ASCII-only directory name requires `--project-id`. Every workspace and context path must be absolute and exist, and every context file must have a `.md` extension.
@@ -47,3 +48,5 @@ The local Marketplace format and Codex CLI installation flow follow the current 
 ## Diagnosis
 
 `gareji doctor` performs no install, registration, or repair operation. It checks the installed Core binary, an optional project identity, the `gareji-local` Marketplace, and the installed-and-enabled Gareji Progress Plugin. It exits successfully only when every requested layer is ready.
+
+`gareji status` is the project-centered daily Interface. It resolves the current or supplied workspace to one registration, reuses Doctor's non-repairing health checks, and reads a bounded newest-first page through `gareji-core progress list`. Its human view shows the project identity, context-reference count, integration health, checkpoint summaries, and at most five paths per checkpoint. Its JSON view returns the same bounded `StatusReport`. It does not dereference context or write Core, Codex, or project state.

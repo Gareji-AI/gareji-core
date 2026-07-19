@@ -171,6 +171,18 @@ def smoke_test(staging: Path, target: str) -> None:
             raise RuntimeError(
                 f"{executable.name} --help failed ({result.returncode}): {result.stderr}"
             )
+    status_help = subprocess.run(
+        [str(gareji), "status", "--help"],
+        cwd=staging,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if status_help.returncode != 0:
+        raise RuntimeError(
+            f"gareji status --help failed ({status_help.returncode}): {status_help.stderr}"
+        )
 
     with tempfile.TemporaryDirectory(prefix="gareji-smoke-") as temporary:
         profile = Path(temporary)

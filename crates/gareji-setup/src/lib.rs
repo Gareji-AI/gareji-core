@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use anyhow::{anyhow, bail, Context, Result};
-use gareji_contracts::{ProjectGrant, ProjectRegistration, SourcedContext};
+use gareji_contracts::{
+    CheckpointStatusResult, ListProgressResult, ProjectGrant, ProjectRegistration, SourcedContext,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
@@ -52,6 +54,19 @@ pub struct DoctorRequest {
     pub project_id: Option<String>,
 }
 
+/// Inputs for a project-centered, non-repairing status view.
+#[derive(Clone, Debug)]
+pub struct StatusRequest {
+    /// Registered project workspace. Relative paths are resolved before matching.
+    pub workspace: PathBuf,
+    /// Directory that should contain the installed Core binary.
+    pub install_dir: PathBuf,
+    /// Codex CLI executable.
+    pub codex_binary: PathBuf,
+    /// Maximum number of recent Progress Checkpoints to return.
+    pub limit: u16,
+}
+
 /// Result of one setup or diagnosis step.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -88,6 +103,38 @@ pub struct SetupReport {
     pub restart_codex: bool,
     /// Whether every diagnosed requirement is ready.
     pub healthy: bool,
+}
+
+/// One human-oriented, bounded progress observation.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ActivityReport {
+    /// Stable immutable checkpoint identity.
+    pub checkpoint_id: String,
+    /// UTC timestamp supplied by the accepted checkpoint.
+    pub recorded_at: String,
+    /// Stable checkpoint outcome.
+    pub outcome: String,
+    /// Bounded checkpoint summary.
+    pub summary: String,
+    /// Workspace-relative paths changed during the recorded turn.
+    pub changed_paths: Vec<String>,
+}
+
+/// Project-centered status returned by the user-facing `gareji status` Interface.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct StatusReport {
+    /// Stable registered project identity.
+    pub project_id: String,
+    /// Human-readable registered project name.
+    pub project_name: String,
+    /// Canonical registered execution workspace.
+    pub workspace: String,
+    /// Number of attributed context references configured for the project.
+    pub context_references: usize,
+    /// Installation and integration health.
+    pub health: SetupReport,
+    /// Newest accepted project progress, in intake order.
+    pub recent_activity: Vec<ActivityReport>,
 }
 
 /// Bounded output captured from one local command.
@@ -301,6 +348,81 @@ pub fn doctor(request: &DoctorRequest, runner: &mut impl CommandRunner) -> Resul
         steps,
         restart_codex: false,
         healthy: core_ready && project_ready && marketplace_ready && plugin_ready,
+    })
+}
+
+/// Inspect one registered workspace and its newest accepted progress without repair.
+pub fn status(request: &StatusRequest, runner: &mut impl CommandRunner) -> Result<StatusReport> {
+    if !(1..=100).contains(&request.limit) {
+        bail!("status limit must be from 1 through 100");
+    }
+    let core = request.install_dir.join(core_binary_name());
+    if !core.is_file() {
+        bail!("Gareji Core is not installed; run gareji setup first");
+    }
+    let workspace = request
+        .workspace
+        .canonicalize()
+        .context("could not resolve the status workspace")?;
+    let project = list_projects(&core, runner)?
+        .into_iter()
+        .find(|project| same_path(Path::new(&project.execution_workspace), &workspace))
+        .context("this workspace is not registered; run gareji setup first")?;
+    let health = doctor(
+        &DoctorRequest {
+            install_dir: request.install_dir.clone(),
+            codex_binary: request.codex_binary.clone(),
+            project_id: Some(project.project_id.clone()),
+        },
+        runner,
+    )?;
+    let progress: ListProgressResult = run_json(
+        runner,
+        &core,
+        &[
+            OsString::from("progress"),
+            OsString::from("list"),
+            OsString::from("--project-id"),
+            OsString::from(&project.project_id),
+            OsString::from("--limit"),
+            OsString::from(request.limit.to_string()),
+        ],
+        "Core progress list",
+    )?;
+    let recent_activity = progress
+        .checkpoints
+        .into_iter()
+        .map(activity_report)
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(StatusReport {
+        project_id: project.project_id,
+        project_name: project.name,
+        workspace: project.execution_workspace,
+        context_references: project.sourced_context.len(),
+        health,
+        recent_activity,
+    })
+}
+
+fn activity_report(status: CheckpointStatusResult) -> Result<ActivityReport> {
+    #[derive(Deserialize)]
+    struct Payload {
+        recorded_at: String,
+        outcome: String,
+        summary: String,
+        #[serde(default)]
+        changed_paths: Vec<String>,
+    }
+
+    let payload: Payload = serde_json::from_value(status.checkpoint)
+        .context("Core returned an invalid Progress Checkpoint payload")?;
+    Ok(ActivityReport {
+        checkpoint_id: status.checkpoint_id,
+        recorded_at: payload.recorded_at,
+        outcome: payload.outcome,
+        summary: payload.summary,
+        changed_paths: payload.changed_paths,
     })
 }
 
@@ -1266,5 +1388,69 @@ mod tests {
             .calls
             .iter()
             .all(|call| { !call.iter().any(|part| part == "add" || part == "register") }));
+    }
+
+    #[test]
+    fn status_combines_health_context_and_recent_progress() {
+        let (_directory, request, registration) = fixture();
+        fs::create_dir_all(&request.install_dir).unwrap();
+        fs::copy(
+            &request.core_source,
+            request.install_dir.join(core_binary_name()),
+        )
+        .unwrap();
+        let root = request.marketplace_root.canonicalize().unwrap();
+        let projects = serde_json::to_value(vec![&registration]).unwrap();
+        let mut runner = ScriptedRunner::new(vec![
+            json_output(projects.clone()),
+            json_output(projects),
+            json_output(serde_json::json!({
+                "marketplaces": [{"name": MARKETPLACE_NAME, "root": root}]
+            })),
+            json_output(serde_json::json!({
+                "installed": [{
+                    "pluginId": PLUGIN_ID,
+                    "version": "0.1.1",
+                    "installed": true,
+                    "enabled": true
+                }]
+            })),
+            json_output(serde_json::json!({
+                "checkpoints": [{
+                    "checkpoint_id": "codex-stop-1",
+                    "checkpoint": {
+                        "recorded_at": "2026-07-19T01:00:00Z",
+                        "outcome": "progress",
+                        "summary": "Codex turn ended with 2 changed paths.",
+                        "changed_paths": ["README.md", "src/lib.rs"]
+                    },
+                    "deliveries": []
+                }],
+                "next_cursor": null
+            })),
+        ]);
+
+        let report = status(
+            &StatusRequest {
+                workspace: request.workspace,
+                install_dir: request.install_dir,
+                codex_binary: request.codex_binary,
+                limit: 5,
+            },
+            &mut runner,
+        )
+        .unwrap();
+
+        assert!(report.health.healthy);
+        assert_eq!(report.project_id, "sample-project");
+        assert_eq!(report.project_name, "Sample Project");
+        assert_eq!(report.context_references, 1);
+        assert_eq!(report.recent_activity.len(), 1);
+        assert_eq!(
+            report.recent_activity[0].changed_paths,
+            ["README.md", "src/lib.rs"]
+        );
+        assert_eq!(runner.calls.len(), 5);
+        assert_eq!(runner.calls[4][1..3], ["progress", "list"]);
     }
 }

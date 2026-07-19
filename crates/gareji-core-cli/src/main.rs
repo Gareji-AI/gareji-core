@@ -8,11 +8,11 @@ use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use gareji_contracts::{
-    CoreBridgeError, CoreBridgeRequest, CoreBridgeResponse, CoreErrorCode, ProjectRegistration,
-    CORE_BRIDGE_PROTOCOL_VERSION,
+    CoreBridgeError, CoreBridgeOperation, CoreBridgeRequest, CoreBridgeResponse, CoreErrorCode,
+    ListProgressResult, ProjectRegistration, CORE_BRIDGE_PROTOCOL_VERSION,
 };
 use gareji_core::bridge::CoreBridge;
 use gareji_core::registry::ProjectRegistry;
@@ -44,6 +44,11 @@ enum Commands {
         #[command(subcommand)]
         command: ProjectCommands,
     },
+    /// Read bounded project progress as JSON.
+    Progress {
+        #[command(subcommand)]
+        command: ProgressCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -56,6 +61,22 @@ enum ProjectCommands {
     },
     /// List complete local registrations as JSON.
     List,
+}
+
+#[derive(Debug, Subcommand)]
+enum ProgressCommands {
+    /// List the newest accepted Progress Checkpoints for one project.
+    List {
+        /// Stable registered project identity.
+        #[arg(long)]
+        project_id: String,
+        /// Maximum number of checkpoints to return, from 1 through 100.
+        #[arg(long, default_value_t = 5)]
+        limit: u16,
+        /// Return checkpoints older than this checkpoint identity.
+        #[arg(long)]
+        before: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -75,6 +96,13 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Project { command } => match command {
             ProjectCommands::Register { file } => register_project(&database, &file),
             ProjectCommands::List => list_projects(&database),
+        },
+        Commands::Progress { command } => match command {
+            ProgressCommands::List {
+                project_id,
+                limit,
+                before,
+            } => list_progress(&database, project_id, limit, before),
         },
     }
 }
@@ -113,6 +141,46 @@ fn list_projects(database: &PathBuf) -> Result<()> {
     let registry = ProjectRegistry::open_sqlite(database)?;
     println!("{}", serde_json::to_string(&registry.list()?)?);
     Ok(())
+}
+
+fn list_progress(
+    database: &PathBuf,
+    project_id: String,
+    limit: u16,
+    before_checkpoint_id: Option<String>,
+) -> Result<()> {
+    if !(1..=100).contains(&limit) {
+        bail!("progress limit must be from 1 through 100");
+    }
+    let mut bridge = CoreBridge::open_sqlite_with_board(
+        database,
+        Box::new(ProcessBoardAdapter::from_environment()),
+    )?;
+    let response = bridge.handle(CoreBridgeRequest {
+        protocol_version: CORE_BRIDGE_PROTOCOL_VERSION.to_owned(),
+        request_id: "gareji-core-progress-list".to_owned(),
+        operation: CoreBridgeOperation::ListProgress {
+            project_id,
+            work_item_id: None,
+            before_checkpoint_id,
+            limit,
+        },
+    });
+    match response {
+        CoreBridgeResponse::Ok { result, .. } => {
+            let result: ListProgressResult =
+                serde_json::from_value(result).context("Core returned an invalid progress list")?;
+            println!("{}", serde_json::to_string(&result)?);
+            Ok(())
+        }
+        CoreBridgeResponse::Error { error, .. } => {
+            bail!(
+                "Core rejected progress list: {:?}: {}",
+                error.code,
+                error.message
+            )
+        }
+    }
 }
 
 fn run_bridge(database: &PathBuf) -> Result<()> {
@@ -196,5 +264,18 @@ mod tests {
                 .kind(),
             io::ErrorKind::InvalidData
         );
+    }
+
+    #[test]
+    fn progress_list_rejects_an_out_of_range_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = list_progress(
+            &directory.path().join("core.sqlite3"),
+            "core".to_owned(),
+            0,
+            None,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("from 1 through 100"));
     }
 }
