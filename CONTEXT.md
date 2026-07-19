@@ -46,9 +46,17 @@ _Avoid_: Board transition, Hook
 The Core Module that stores explicit operational project-to-workspace configuration, grants, and active Work item references without owning Board state.
 _Avoid_: Board project model, inferred repository scanner
 
+**Context reference**:
+An attributed location configured for a project and returned unchanged by Core. A trusted caller may dereference a local Markdown absolute path using its normal filesystem access.
+_Avoid_: copied knowledge content, path-only provider Adapter
+
 **Core bridge**:
 The versioned local Interface through which a trusted parent transport uses Registry and Progress Recorder behavior without accessing Core storage directly.
 _Avoid_: daemon, generic remote API
+
+**Gareji Setup**:
+The standalone local Module that installs Core, registers explicit project configuration, and invokes Codex's own Plugin management commands without becoming a Core state owner.
+_Avoid_: Core policy, direct SQLite writer, silent Hook trust
 
 **Board Adapter**:
 The replaceable Core role that obtains Board-owned active-work assessments before Core stores an operational Work item reference.
