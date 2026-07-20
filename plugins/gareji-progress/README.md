@@ -6,6 +6,7 @@ The Hook does not parse the Codex transcript. It captures only the registered pr
 
 ## Prerequisites
 
+- `python` on Windows, or `python3` on Linux and macOS. `gareji setup` and `gareji doctor` verify this runtime.
 - Run `gareji setup`, or place gareji-core on PATH, or set GAREJI_CORE_BIN.
 - The project is registered in the same Core database used by the Hook.
 - The registration grants write_progress.

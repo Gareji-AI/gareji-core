@@ -39,9 +39,14 @@ class PackageGarejiTests(unittest.TestCase):
             '{"name":"gareji-progress"}\n', encoding="utf-8"
         )
         (plugin / "scripts" / "record_stop.py").write_text("pass\n", encoding="utf-8")
+        (plugin / "platform-layout.json").write_text("{}\n", encoding="utf-8")
         (plugin / "scripts" / "__pycache__" / "record_stop.pyc").write_bytes(b"cache")
         (plugin / "tests" / "test_record_stop.py").write_text("pass\n", encoding="utf-8")
         (repo / "README.md").write_text("# Gareji\n", encoding="utf-8")
+        (repo / "docs").mkdir()
+        (repo / "docs" / "platform-layout-v0.md").write_text(
+            "# Platform layout v0\n", encoding="utf-8"
+        )
         for name in (
             package_gareji.executable_name("gareji", target),
             package_gareji.executable_name("gareji-core", target),
@@ -67,6 +72,8 @@ class PackageGarejiTests(unittest.TestCase):
             self.assertIn(prefix + "gareji-core.exe", names)
             self.assertIn(prefix + "manifest.json", names)
             self.assertIn(prefix + "plugins/gareji-progress/scripts/record_stop.py", names)
+            self.assertIn(prefix + "plugins/gareji-progress/platform-layout.json", names)
+            self.assertIn(prefix + "docs/platform-layout-v0.md", names)
             self.assertFalse(any("__pycache__" in name for name in names))
             self.assertFalse(any("/tests/" in name for name in names))
 

@@ -2,7 +2,7 @@
 
 Status: implemented by the gareji-progress Codex Plugin.
 
-The plugin records a bounded Progress Checkpoint through the existing local Core bridge whenever a Codex turn stops in a registered execution workspace. It packages the Hook configuration and its cross-platform Python script under plugins/gareji-progress.
+The plugin records a bounded Progress Checkpoint through the existing local Core bridge whenever a Codex turn stops in a registered execution workspace. It packages the Hook configuration and its cross-platform Python script under plugins/gareji-progress. The Hook requires `python` on Windows or `python3` on Linux and macOS; Setup and Doctor verify that runtime before reporting a healthy installation.
 
 ## Intake
 
@@ -11,7 +11,7 @@ The Hook uses stable Codex Stop fields: session ID, turn ID, event name, and wor
 The Hook resolves the project in either of two ways:
 
 1. Match the Codex working directory against an absolute execution_workspace in a Core project registration.
-2. Use GAREJI_PROJECT_ID and GAREJI_EXECUTION_WORKSPACE_PATH when execution_workspace is a logical identity rather than a local path.
+2. Use both GAREJI_PROJECT_ID and GAREJI_EXECUTION_WORKSPACE_PATH when execution_workspace is a logical identity rather than a local path. Supplying only the identity is a bounded configuration failure.
 
 The Hook resolves Core in this order: `GAREJI_CORE_BIN`, `gareji-core` on PATH, then the platform application-data location written by `gareji setup`. A normal first-run setup therefore requires no persistent PATH or Hook environment modification.
 

@@ -1,10 +1,12 @@
 //! Idempotent first-run setup for a local Gareji installation.
 
 use std::ffi::{OsStr, OsString};
+use std::fmt;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::OnceLock;
 
 use anyhow::{anyhow, bail, Context, Result};
 use gareji_contracts::{
@@ -17,6 +19,50 @@ use tempfile::NamedTempFile;
 const MAX_COMMAND_OUTPUT_BYTES: usize = 1_048_576;
 const MARKETPLACE_NAME: &str = "gareji-local";
 const PLUGIN_ID: &str = "gareji-progress@gareji-local";
+const PLATFORM_LAYOUT_JSON: &str =
+    include_str!("../../../plugins/gareji-progress/platform-layout.json");
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformLayout {
+    primary_env: String,
+    primary_suffix: Vec<String>,
+    fallback_env: Option<String>,
+    fallback_suffix: Vec<String>,
+    data_suffix: Vec<String>,
+    core_binary: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PlatformLayouts {
+    windows: PlatformLayout,
+    macos: PlatformLayout,
+    linux: PlatformLayout,
+}
+
+fn platform_layout() -> &'static PlatformLayout {
+    static LAYOUTS: OnceLock<PlatformLayouts> = OnceLock::new();
+    let layouts = LAYOUTS.get_or_init(|| {
+        serde_json::from_str(PLATFORM_LAYOUT_JSON)
+            .expect("embedded Gareji platform layout contract must be valid")
+    });
+    if cfg!(windows) {
+        &layouts.windows
+    } else if cfg!(target_os = "macos") {
+        &layouts.macos
+    } else {
+        &layouts.linux
+    }
+}
+
+/// Shared local installation coordinates used by Setup, Doctor, and Status.
+#[derive(Clone, Debug)]
+pub struct InstallationContext {
+    /// Directory that contains the installed Core binary.
+    pub install_dir: PathBuf,
+    /// Codex CLI executable.
+    pub codex_binary: PathBuf,
+}
 
 /// One requested local installation and project registration.
 #[derive(Clone, Debug)]
@@ -31,10 +77,8 @@ pub struct SetupRequest {
     pub context_paths: Vec<PathBuf>,
     /// Gareji Core binary to install.
     pub core_source: PathBuf,
-    /// Directory that receives the installed Core binary.
-    pub install_dir: PathBuf,
-    /// Codex CLI executable.
-    pub codex_binary: PathBuf,
+    /// Shared local installation coordinates.
+    pub installation: InstallationContext,
     /// Local marketplace root containing `.agents/plugins/marketplace.json`.
     pub marketplace_root: PathBuf,
     /// Report intended changes without writing or invoking mutating commands.
@@ -46,10 +90,8 @@ pub struct SetupRequest {
 /// Inputs for a non-repairing Gareji installation diagnosis.
 #[derive(Clone, Debug)]
 pub struct DoctorRequest {
-    /// Directory that should contain the installed Core binary.
-    pub install_dir: PathBuf,
-    /// Codex CLI executable.
-    pub codex_binary: PathBuf,
+    /// Shared local installation coordinates.
+    pub installation: InstallationContext,
     /// Optional project identity that should be registered.
     pub project_id: Option<String>,
 }
@@ -59,10 +101,8 @@ pub struct DoctorRequest {
 pub struct StatusRequest {
     /// Registered project workspace. Relative paths are resolved before matching.
     pub workspace: PathBuf,
-    /// Directory that should contain the installed Core binary.
-    pub install_dir: PathBuf,
-    /// Codex CLI executable.
-    pub codex_binary: PathBuf,
+    /// Shared local installation coordinates.
+    pub installation: InstallationContext,
     /// Maximum number of recent Progress Checkpoints to return.
     pub limit: u16,
 }
@@ -81,11 +121,39 @@ pub enum StepStatus {
     Missing,
 }
 
+/// Stable identity of one setup or diagnosis layer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepKind {
+    /// Installed Core binary.
+    Core,
+    /// Project registration.
+    Project,
+    /// Codex Marketplace mapping.
+    Marketplace,
+    /// Gareji Progress Plugin installation.
+    Plugin,
+    /// Python runtime used by the packaged Stop Hook.
+    HookRuntime,
+}
+
+impl fmt::Display for StepKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Core => "core",
+            Self::Project => "project",
+            Self::Marketplace => "marketplace",
+            Self::Plugin => "plugin",
+            Self::HookRuntime => "hook_runtime",
+        })
+    }
+}
+
 /// One bounded setup or diagnosis observation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StepReport {
     /// Stable step name.
-    pub step: String,
+    pub step: StepKind,
     /// Current step status.
     pub status: StepStatus,
     /// Bounded human-readable explanation.
@@ -170,12 +238,14 @@ impl CommandRunner for SystemCommandRunner {
 /// Apply or plan one complete first-run setup.
 pub fn setup(request: &SetupRequest, runner: &mut impl CommandRunner) -> Result<SetupReport> {
     let prepared = PreparedSetup::new(request)?;
+    validate_project_input(&prepared.core_source, &prepared.registration, runner)?;
+    ensure_hook_runtime(runner)?;
     let mut steps = Vec::new();
     let core_changed = binary_needs_install(&prepared.core_source, &prepared.core_destination)?;
 
     if request.dry_run {
         steps.push(step(
-            "core",
+            StepKind::Core,
             if core_changed {
                 StepStatus::Planned
             } else {
@@ -188,19 +258,24 @@ pub fn setup(request: &SetupRequest, runner: &mut impl CommandRunner) -> Result<
             },
         ));
         steps.push(step(
-            "project",
+            StepKind::Project,
             StepStatus::Planned,
             "create or replace the idempotent local project registration",
         ));
         steps.push(step(
-            "marketplace",
+            StepKind::Marketplace,
             StepStatus::Planned,
             "ensure the Gareji local Codex marketplace is configured",
         ));
         steps.push(step(
-            "plugin",
+            StepKind::Plugin,
             StepStatus::Planned,
             "ensure the requested Gareji Progress Codex Plugin version is installed",
+        ));
+        steps.push(step(
+            StepKind::HookRuntime,
+            StepStatus::Ready,
+            "the Python runtime required by the Stop Hook is available",
         ));
         return Ok(SetupReport {
             project_id: Some(prepared.registration.project_id),
@@ -213,13 +288,13 @@ pub fn setup(request: &SetupRequest, runner: &mut impl CommandRunner) -> Result<
     if core_changed {
         install_binary(&prepared.core_source, &prepared.core_destination)?;
         steps.push(step(
-            "core",
+            StepKind::Core,
             StepStatus::Changed,
             "installed Gareji Core in the local application-data directory",
         ));
     } else {
         steps.push(step(
-            "core",
+            StepKind::Core,
             StepStatus::Ready,
             "installed Gareji Core already matches the requested binary",
         ));
@@ -232,7 +307,7 @@ pub fn setup(request: &SetupRequest, runner: &mut impl CommandRunner) -> Result<
         runner,
     )?;
     steps.push(step(
-        "project",
+        StepKind::Project,
         if project_changed {
             StepStatus::Changed
         } else {
@@ -248,7 +323,7 @@ pub fn setup(request: &SetupRequest, runner: &mut impl CommandRunner) -> Result<
     let marketplace_changed =
         ensure_marketplace(&prepared.codex_binary, &prepared.marketplace_root, runner)?;
     steps.push(step(
-        "marketplace",
+        StepKind::Marketplace,
         if marketplace_changed {
             StepStatus::Changed
         } else {
@@ -263,7 +338,7 @@ pub fn setup(request: &SetupRequest, runner: &mut impl CommandRunner) -> Result<
 
     let plugin_changed = ensure_plugin(&prepared.codex_binary, &prepared.plugin_version, runner)?;
     steps.push(step(
-        "plugin",
+        StepKind::Plugin,
         if plugin_changed {
             StepStatus::Changed
         } else {
@@ -274,6 +349,11 @@ pub fn setup(request: &SetupRequest, runner: &mut impl CommandRunner) -> Result<
         } else {
             "the Gareji Progress Codex Plugin is already installed and enabled"
         },
+    ));
+    steps.push(step(
+        StepKind::HookRuntime,
+        StepStatus::Ready,
+        "the Python runtime required by the Stop Hook is available",
     ));
 
     Ok(SetupReport {
@@ -286,11 +366,11 @@ pub fn setup(request: &SetupRequest, runner: &mut impl CommandRunner) -> Result<
 
 /// Diagnose the installed Core, optional project registration, and Codex Plugin without repair.
 pub fn doctor(request: &DoctorRequest, runner: &mut impl CommandRunner) -> Result<SetupReport> {
-    let core = request.install_dir.join(core_binary_name());
+    let core = request.installation.install_dir.join(core_binary_name());
     let mut steps = Vec::new();
     let core_ready = core.is_file();
     steps.push(step(
-        "core",
+        StepKind::Core,
         ready_or_missing(core_ready),
         if core_ready {
             "the installed Gareji Core binary is present"
@@ -307,7 +387,7 @@ pub fn doctor(request: &DoctorRequest, runner: &mut impl CommandRunner) -> Resul
                 .any(|project| &project.project_id == project_id);
         }
         steps.push(step(
-            "project",
+            StepKind::Project,
             ready_or_missing(project_ready),
             if project_ready {
                 "the requested project is registered"
@@ -317,13 +397,13 @@ pub fn doctor(request: &DoctorRequest, runner: &mut impl CommandRunner) -> Resul
         ));
     }
 
-    let marketplaces = list_marketplaces(&request.codex_binary, runner)?;
+    let marketplaces = list_marketplaces(&request.installation.codex_binary, runner)?;
     let marketplace_ready = marketplaces
         .marketplaces
         .iter()
         .any(|marketplace| marketplace.name == MARKETPLACE_NAME);
     steps.push(step(
-        "marketplace",
+        StepKind::Marketplace,
         ready_or_missing(marketplace_ready),
         if marketplace_ready {
             "the Gareji local Codex marketplace is configured"
@@ -332,9 +412,9 @@ pub fn doctor(request: &DoctorRequest, runner: &mut impl CommandRunner) -> Resul
         },
     ));
 
-    let plugin_ready = plugin_is_ready(&request.codex_binary, None, runner)?;
+    let plugin_ready = plugin_is_ready(&request.installation.codex_binary, None, runner)?;
     steps.push(step(
-        "plugin",
+        StepKind::Plugin,
         ready_or_missing(plugin_ready),
         if plugin_ready {
             "the Gareji Progress Codex Plugin is installed and enabled"
@@ -343,11 +423,26 @@ pub fn doctor(request: &DoctorRequest, runner: &mut impl CommandRunner) -> Resul
         },
     ));
 
+    let hook_runtime_ready = hook_runtime_is_ready(runner);
+    steps.push(step(
+        StepKind::HookRuntime,
+        ready_or_missing(hook_runtime_ready),
+        if hook_runtime_ready {
+            "the Python runtime required by the Stop Hook is available"
+        } else {
+            "the Python runtime required by the Stop Hook is missing or cannot run"
+        },
+    ));
+
     Ok(SetupReport {
         project_id: request.project_id.clone(),
         steps,
         restart_codex: false,
-        healthy: core_ready && project_ready && marketplace_ready && plugin_ready,
+        healthy: core_ready
+            && project_ready
+            && marketplace_ready
+            && plugin_ready
+            && hook_runtime_ready,
     })
 }
 
@@ -356,7 +451,7 @@ pub fn status(request: &StatusRequest, runner: &mut impl CommandRunner) -> Resul
     if !(1..=100).contains(&request.limit) {
         bail!("status limit must be from 1 through 100");
     }
-    let core = request.install_dir.join(core_binary_name());
+    let core = request.installation.install_dir.join(core_binary_name());
     if !core.is_file() {
         bail!("Gareji Core is not installed; run gareji setup first");
     }
@@ -370,8 +465,7 @@ pub fn status(request: &StatusRequest, runner: &mut impl CommandRunner) -> Resul
         .context("this workspace is not registered; run gareji setup first")?;
     let health = doctor(
         &DoctorRequest {
-            install_dir: request.install_dir.clone(),
-            codex_binary: request.codex_binary.clone(),
+            installation: request.installation.clone(),
             project_id: Some(project.project_id.clone()),
         },
         runner,
@@ -428,16 +522,25 @@ fn activity_report(status: CheckpointStatusResult) -> Result<ActivityReport> {
 
 /// Resolve the platform-specific application-data directory used by Gareji.
 pub fn default_data_dir() -> Result<PathBuf> {
-    let base = if cfg!(windows) {
-        environment_path("LOCALAPPDATA")
-    } else if cfg!(target_os = "macos") {
-        environment_path("HOME").map(|path| path.join("Library/Application Support"))
-    } else {
-        environment_path("XDG_DATA_HOME")
-            .or_else(|| environment_path("HOME").map(|path| path.join(".local/share")))
+    let layout = platform_layout();
+    let base = environment_path(&layout.primary_env)
+        .map(|path| join_components(path, &layout.primary_suffix))
+        .or_else(|| {
+            layout
+                .fallback_env
+                .as_deref()
+                .and_then(environment_path)
+                .map(|path| join_components(path, &layout.fallback_suffix))
+        })
+        .context("could not resolve the local application-data directory")?;
+    Ok(join_components(base, &layout.data_suffix))
+}
+
+fn join_components(mut path: PathBuf, components: &[String]) -> PathBuf {
+    for component in components {
+        path.push(component);
     }
-    .context("could not resolve the local application-data directory")?;
-    Ok(base.join("Gareji"))
+    path
 }
 
 /// Find a Gareji local marketplace by walking upward from a starting path.
@@ -510,7 +613,7 @@ impl PreparedSetup {
             canonical_existing_directory(&request.marketplace_root, "marketplace root")?;
         validate_marketplace_root(&marketplace_root)?;
         let plugin_version = read_plugin_version(&marketplace_root)?;
-        if !request.install_dir.is_absolute() {
+        if !request.installation.install_dir.is_absolute() {
             bail!("install directory must be absolute");
         }
 
@@ -549,8 +652,8 @@ impl PreparedSetup {
         Ok(Self {
             registration,
             core_source,
-            core_destination: request.install_dir.join(core_binary_name()),
-            codex_binary: request.codex_binary.clone(),
+            core_destination: request.installation.install_dir.join(core_binary_name()),
+            codex_binary: request.installation.codex_binary.clone(),
             marketplace_root,
             plugin_version,
         })
@@ -685,14 +788,39 @@ fn file_sha256(path: &Path) -> Result<[u8; 32]> {
     Ok(digest.finalize().into())
 }
 
+fn registration_file(registration: &ProjectRegistration) -> Result<NamedTempFile> {
+    let mut file = NamedTempFile::new().context("could not create registration input")?;
+    serde_json::to_writer(file.as_file_mut(), registration)?;
+    file.as_file_mut().flush()?;
+    Ok(file)
+}
+
+fn validate_project_input(
+    core: &Path,
+    registration: &ProjectRegistration,
+    runner: &mut impl CommandRunner,
+) -> Result<()> {
+    let file = registration_file(registration)?;
+    run_success(
+        runner,
+        core,
+        &[
+            OsString::from("project"),
+            OsString::from("validate"),
+            OsString::from("--file"),
+            file.path().as_os_str().to_owned(),
+        ],
+        "Core project validation",
+    )?;
+    Ok(())
+}
+
 fn register_project(
     core: &Path,
     registration: &ProjectRegistration,
     runner: &mut impl CommandRunner,
 ) -> Result<()> {
-    let mut file = NamedTempFile::new().context("could not create registration input")?;
-    serde_json::to_writer(file.as_file_mut(), registration)?;
-    file.as_file_mut().flush()?;
+    let file = registration_file(registration)?;
     run_success(
         runner,
         core,
@@ -704,6 +832,26 @@ fn register_project(
         ],
         "Core project registration",
     )?;
+    Ok(())
+}
+
+fn hook_runtime_program() -> &'static Path {
+    Path::new(if cfg!(windows) { "python" } else { "python3" })
+}
+
+fn hook_runtime_is_ready(runner: &mut impl CommandRunner) -> bool {
+    runner
+        .run(hook_runtime_program(), &[OsString::from("--version")])
+        .is_ok_and(|output| output.success)
+}
+
+fn ensure_hook_runtime(runner: &mut impl CommandRunner) -> Result<()> {
+    if !hook_runtime_is_ready(runner) {
+        bail!(
+            "{} is required to run the Gareji Progress Stop Hook",
+            hook_runtime_program().display()
+        );
+    }
     Ok(())
 }
 
@@ -958,9 +1106,9 @@ fn same_path(left: &Path, right: &Path) -> bool {
     normalize(left) == normalize(right)
 }
 
-fn step(step_name: &str, status: StepStatus, message: &str) -> StepReport {
+fn step(step_kind: StepKind, status: StepStatus, message: &str) -> StepReport {
     StepReport {
-        step: step_name.to_owned(),
+        step: step_kind,
         status,
         message: message.to_owned(),
     }
@@ -974,12 +1122,10 @@ fn ready_or_missing(ready: bool) -> StepStatus {
     }
 }
 
-fn core_binary_name() -> &'static str {
-    if cfg!(windows) {
-        "gareji-core.exe"
-    } else {
-        "gareji-core"
-    }
+/// Platform-specific Core executable name from the shared layout contract.
+#[must_use]
+pub fn core_binary_name() -> &'static str {
+    &platform_layout().core_binary
 }
 
 fn environment_path(name: &str) -> Option<PathBuf> {
@@ -1069,6 +1215,13 @@ mod tests {
         }
     }
 
+    fn empty_failure() -> CommandOutput {
+        CommandOutput {
+            success: false,
+            stdout: vec![],
+        }
+    }
+
     fn fixture() -> (tempfile::TempDir, SetupRequest, ProjectRegistration) {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().canonicalize().unwrap();
@@ -1097,8 +1250,10 @@ mod tests {
             workspace: workspace.clone(),
             context_paths: vec![context.clone()],
             core_source,
-            install_dir: root.join("installed"),
-            codex_binary: PathBuf::from("codex"),
+            installation: InstallationContext {
+                install_dir: root.join("installed"),
+                codex_binary: PathBuf::from("codex"),
+            },
             marketplace_root: marketplace_root.clone(),
             dry_run: false,
             replace_project: false,
@@ -1132,17 +1287,19 @@ mod tests {
     }
 
     #[test]
-    fn dry_run_plans_without_invoking_commands_or_writing() {
+    fn dry_run_validates_without_invoking_mutating_commands_or_writing() {
         let (_directory, mut request, _registration) = fixture();
         request.dry_run = true;
-        let destination = request.install_dir.join(core_binary_name());
-        let mut runner = ScriptedRunner::new(vec![]);
+        let destination = request.installation.install_dir.join(core_binary_name());
+        let mut runner = ScriptedRunner::new(vec![empty_success(), empty_success()]);
 
         let report = setup(&request, &mut runner).unwrap();
 
         assert!(report.healthy);
         assert!(!destination.exists());
-        assert!(runner.calls.is_empty());
+        assert_eq!(runner.calls.len(), 2);
+        assert!(runner.calls[0].iter().any(|part| part == "validate"));
+        assert_eq!(runner.calls[1][0], hook_runtime_program().to_string_lossy());
         assert!(report
             .steps
             .iter()
@@ -1150,10 +1307,45 @@ mod tests {
     }
 
     #[test]
+    fn dry_run_rejects_a_registration_that_core_would_reject() {
+        let (_directory, mut request, _registration) = fixture();
+        request.dry_run = true;
+        request.project_id = Some("x".repeat(129));
+        let mut runner = ScriptedRunner::new(vec![empty_failure()]);
+
+        let error = setup(&request, &mut runner).unwrap_err();
+
+        assert!(error.to_string().contains("project validation"));
+        assert!(!request
+            .installation
+            .install_dir
+            .join(core_binary_name())
+            .exists());
+    }
+
+    #[test]
+    fn setup_requires_the_stop_hook_runtime_before_mutating() {
+        let (_directory, request, _registration) = fixture();
+        let mut runner = ScriptedRunner::new(vec![empty_success(), empty_failure()]);
+
+        let error = setup(&request, &mut runner).unwrap_err();
+
+        assert!(error.to_string().contains("required"));
+        assert!(!request
+            .installation
+            .install_dir
+            .join(core_binary_name())
+            .exists());
+        assert_eq!(runner.calls.len(), 2);
+    }
+
+    #[test]
     fn setup_installs_registers_and_verifies_every_layer() {
         let (_directory, request, registration) = fixture();
         let root = request.marketplace_root.canonicalize().unwrap();
         let mut runner = ScriptedRunner::new(vec![
+            empty_success(),
+            empty_success(),
             json_output(serde_json::json!([])),
             empty_success(),
             json_output(serde_json::to_value(vec![&registration]).unwrap()),
@@ -1178,24 +1370,30 @@ mod tests {
 
         assert!(report.healthy);
         assert!(report.restart_codex);
-        assert!(request.install_dir.join(core_binary_name()).is_file());
-        assert_eq!(runner.calls.len(), 9);
-        assert!(runner.calls[1].iter().any(|part| part == "register"));
-        assert!(runner.calls[4].iter().any(|part| part == "add"));
-        assert!(runner.calls[7].iter().any(|part| part == PLUGIN_ID));
+        assert!(request
+            .installation
+            .install_dir
+            .join(core_binary_name())
+            .is_file());
+        assert_eq!(runner.calls.len(), 11);
+        assert!(runner.calls[3].iter().any(|part| part == "register"));
+        assert!(runner.calls[6].iter().any(|part| part == "add"));
+        assert!(runner.calls[9].iter().any(|part| part == PLUGIN_ID));
     }
 
     #[test]
     fn setup_is_idempotent_when_everything_is_ready() {
         let (_directory, request, registration) = fixture();
-        fs::create_dir_all(&request.install_dir).unwrap();
+        fs::create_dir_all(&request.installation.install_dir).unwrap();
         fs::copy(
             &request.core_source,
-            request.install_dir.join(core_binary_name()),
+            request.installation.install_dir.join(core_binary_name()),
         )
         .unwrap();
         let root = request.marketplace_root.canonicalize().unwrap();
         let mut runner = ScriptedRunner::new(vec![
+            empty_success(),
+            empty_success(),
             json_output(serde_json::to_value(vec![&registration]).unwrap()),
             json_output(serde_json::json!({
                 "marketplaces": [{"name": MARKETPLACE_NAME, "root": root}]
@@ -1213,7 +1411,7 @@ mod tests {
         let report = setup(&request, &mut runner).unwrap();
 
         assert!(!report.restart_codex);
-        assert_eq!(runner.calls.len(), 3);
+        assert_eq!(runner.calls.len(), 5);
         assert_eq!(report.steps[0].status, StepStatus::Ready);
         assert_eq!(report.steps[1].status, StepStatus::Ready);
         assert_eq!(report.steps[2].status, StepStatus::Ready);
@@ -1223,14 +1421,16 @@ mod tests {
     #[test]
     fn setup_reinstalls_an_outdated_plugin_from_the_local_marketplace() {
         let (_directory, request, registration) = fixture();
-        fs::create_dir_all(&request.install_dir).unwrap();
+        fs::create_dir_all(&request.installation.install_dir).unwrap();
         fs::copy(
             &request.core_source,
-            request.install_dir.join(core_binary_name()),
+            request.installation.install_dir.join(core_binary_name()),
         )
         .unwrap();
         let root = request.marketplace_root.canonicalize().unwrap();
         let mut runner = ScriptedRunner::new(vec![
+            empty_success(),
+            empty_success(),
             json_output(serde_json::to_value(vec![&registration]).unwrap()),
             json_output(serde_json::json!({
                 "marketplaces": [{"name": MARKETPLACE_NAME, "root": root}]
@@ -1259,8 +1459,8 @@ mod tests {
 
         assert!(report.restart_codex);
         assert_eq!(report.steps[3].status, StepStatus::Changed);
-        assert_eq!(runner.calls[3][1..4], ["plugin", "remove", PLUGIN_ID]);
-        assert_eq!(runner.calls[4][1..4], ["plugin", "add", PLUGIN_ID]);
+        assert_eq!(runner.calls[5][1..4], ["plugin", "remove", PLUGIN_ID]);
+        assert_eq!(runner.calls[6][1..4], ["plugin", "add", PLUGIN_ID]);
     }
 
     #[test]
@@ -1310,6 +1510,8 @@ mod tests {
     fn detects_marketplace_name_conflicts_without_mutating() {
         let (_directory, request, registration) = fixture();
         let mut runner = ScriptedRunner::new(vec![
+            empty_success(),
+            empty_success(),
             json_output(serde_json::to_value(vec![&registration]).unwrap()),
             json_output(serde_json::json!({
                 "marketplaces": [{"name": MARKETPLACE_NAME, "root": request.workspace}]
@@ -1319,21 +1521,23 @@ mod tests {
         let error = setup(&request, &mut runner).unwrap_err();
 
         assert!(error.to_string().contains("another location"));
-        assert_eq!(runner.calls.len(), 2);
+        assert_eq!(runner.calls.len(), 4);
     }
 
     #[test]
     fn project_conflict_requires_explicit_replacement() {
         let (_directory, request, mut registration) = fixture();
         registration.name = "Manually configured".to_owned();
-        let mut runner = ScriptedRunner::new(vec![json_output(
-            serde_json::to_value(vec![&registration]).unwrap(),
-        )]);
+        let mut runner = ScriptedRunner::new(vec![
+            empty_success(),
+            empty_success(),
+            json_output(serde_json::to_value(vec![&registration]).unwrap()),
+        ]);
 
         let error = setup(&request, &mut runner).unwrap_err();
 
         assert!(error.to_string().contains("--replace-project"));
-        assert_eq!(runner.calls.len(), 1);
+        assert_eq!(runner.calls.len(), 3);
         assert!(!runner.calls[0].iter().any(|part| part == "register"));
     }
 
@@ -1350,10 +1554,10 @@ mod tests {
     #[test]
     fn doctor_reports_every_ready_layer_without_repair_commands() {
         let (_directory, request, registration) = fixture();
-        fs::create_dir_all(&request.install_dir).unwrap();
+        fs::create_dir_all(&request.installation.install_dir).unwrap();
         fs::copy(
             &request.core_source,
-            request.install_dir.join(core_binary_name()),
+            request.installation.install_dir.join(core_binary_name()),
         )
         .unwrap();
         let root = request.marketplace_root.canonicalize().unwrap();
@@ -1370,12 +1574,12 @@ mod tests {
                     "enabled": true
                 }]
             })),
+            empty_success(),
         ]);
 
         let report = doctor(
             &DoctorRequest {
-                install_dir: request.install_dir,
-                codex_binary: request.codex_binary,
+                installation: request.installation,
                 project_id: Some("sample-project".to_owned()),
             },
             &mut runner,
@@ -1383,7 +1587,7 @@ mod tests {
         .unwrap();
 
         assert!(report.healthy);
-        assert_eq!(runner.calls.len(), 3);
+        assert_eq!(runner.calls.len(), 4);
         assert!(runner
             .calls
             .iter()
@@ -1391,12 +1595,54 @@ mod tests {
     }
 
     #[test]
-    fn status_combines_health_context_and_recent_progress() {
-        let (_directory, request, registration) = fixture();
-        fs::create_dir_all(&request.install_dir).unwrap();
+    fn doctor_reports_a_missing_stop_hook_runtime() {
+        let (_directory, request, _registration) = fixture();
+        fs::create_dir_all(&request.installation.install_dir).unwrap();
         fs::copy(
             &request.core_source,
-            request.install_dir.join(core_binary_name()),
+            request.installation.install_dir.join(core_binary_name()),
+        )
+        .unwrap();
+        let root = request.marketplace_root.canonicalize().unwrap();
+        let mut runner = ScriptedRunner::new(vec![
+            json_output(serde_json::json!({
+                "marketplaces": [{"name": MARKETPLACE_NAME, "root": root}]
+            })),
+            json_output(serde_json::json!({
+                "installed": [{
+                    "pluginId": PLUGIN_ID,
+                    "version": "0.1.1",
+                    "installed": true,
+                    "enabled": true
+                }]
+            })),
+            empty_failure(),
+        ]);
+
+        let report = doctor(
+            &DoctorRequest {
+                installation: request.installation,
+                project_id: None,
+            },
+            &mut runner,
+        )
+        .unwrap();
+
+        assert!(!report.healthy);
+        assert_eq!(
+            report.steps.last().map(|step| step.step),
+            Some(StepKind::HookRuntime)
+        );
+        assert_eq!(report.steps.last().unwrap().status, StepStatus::Missing);
+    }
+
+    #[test]
+    fn status_combines_health_context_and_recent_progress() {
+        let (_directory, request, registration) = fixture();
+        fs::create_dir_all(&request.installation.install_dir).unwrap();
+        fs::copy(
+            &request.core_source,
+            request.installation.install_dir.join(core_binary_name()),
         )
         .unwrap();
         let root = request.marketplace_root.canonicalize().unwrap();
@@ -1415,6 +1661,7 @@ mod tests {
                     "enabled": true
                 }]
             })),
+            empty_success(),
             json_output(serde_json::json!({
                 "checkpoints": [{
                     "checkpoint_id": "codex-stop-1",
@@ -1433,8 +1680,7 @@ mod tests {
         let report = status(
             &StatusRequest {
                 workspace: request.workspace,
-                install_dir: request.install_dir,
-                codex_binary: request.codex_binary,
+                installation: request.installation,
                 limit: 5,
             },
             &mut runner,
@@ -1450,7 +1696,7 @@ mod tests {
             report.recent_activity[0].changed_paths,
             ["README.md", "src/lib.rs"]
         );
-        assert_eq!(runner.calls.len(), 5);
-        assert_eq!(runner.calls[4][1..3], ["progress", "list"]);
+        assert_eq!(runner.calls.len(), 6);
+        assert_eq!(runner.calls[5][1..3], ["progress", "list"]);
     }
 }

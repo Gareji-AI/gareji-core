@@ -61,9 +61,11 @@ Projects that use Core as the sole Progress Checkpoint ledger register an empty 
 
 ### First-run Setup Module
 
-The standalone `gareji` CLI owns installation orchestration outside the trust kernel. Its `setup` operation validates absolute workspace and Markdown paths, installs the sibling Core binary in local application data, registers through the public `gareji-core project` Interface, and delegates Marketplace and Plugin changes to the installed Codex CLI. Its `doctor` operation reports the same layers without changing them.
+The standalone `gareji` CLI owns installation orchestration outside the trust kernel. Its `setup` operation validates absolute workspace and Markdown paths, validates the generated registration through the supplied Core binary, verifies the Stop Hook runtime, installs Core in local application data, registers through the public `gareji-core project` Interface, and delegates Marketplace and Plugin changes to the installed Codex CLI. Its `doctor` operation reports the same layers without changing them.
 
 Setup is safe to rerun: matching binaries, registrations, Marketplace sources, and enabled Plugins are left unchanged. `--dry-run` invokes no mutating command. Setup never reads or writes Core SQLite directly and cannot approve or silently trust a lifecycle Hook.
+
+Setup and the packaged Stop Hook consume one versioned platform-layout contract for the installed Core location, avoiding separate operating-system path rules in Rust and Python.
 
 ## Invariants
 

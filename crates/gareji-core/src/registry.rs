@@ -19,6 +19,11 @@ pub struct ProjectRegistry {
 }
 
 impl ProjectRegistry {
+    /// Validate one registration without opening or mutating registry storage.
+    pub fn validate(registration: &ProjectRegistration) -> Result<(), RegistryError> {
+        validate_registration(registration)
+    }
+
     /// Open or create a registry at an application-data path.
     pub fn open_sqlite(path: impl AsRef<Path>) -> Result<Self, RegistryError> {
         let path = path.as_ref();

@@ -53,6 +53,12 @@ enum Commands {
 
 #[derive(Debug, Subcommand)]
 enum ProjectCommands {
+    /// Validate a registration JSON file without opening or mutating the registry.
+    Validate {
+        /// Path to a ProjectRegistration JSON object.
+        #[arg(long)]
+        file: PathBuf,
+    },
     /// Create or replace a registration from a JSON file.
     Register {
         /// Path to a ProjectRegistration JSON object.
@@ -90,21 +96,41 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<()> {
-    let database = cli.database.map_or_else(default_database_path, Ok)?;
     match cli.command {
-        Commands::Bridge => run_bridge(&database),
+        Commands::Bridge => run_bridge(&database_path(cli.database.as_ref())?),
         Commands::Project { command } => match command {
-            ProjectCommands::Register { file } => register_project(&database, &file),
-            ProjectCommands::List => list_projects(&database),
+            ProjectCommands::Validate { file } => validate_project(&file),
+            ProjectCommands::Register { file } => {
+                register_project(&database_path(cli.database.as_ref())?, &file)
+            }
+            ProjectCommands::List => list_projects(&database_path(cli.database.as_ref())?),
         },
         Commands::Progress { command } => match command {
             ProgressCommands::List {
                 project_id,
                 limit,
                 before,
-            } => list_progress(&database, project_id, limit, before),
+            } => list_progress(
+                &database_path(cli.database.as_ref())?,
+                project_id,
+                limit,
+                before,
+            ),
         },
     }
+}
+
+fn database_path(configured: Option<&PathBuf>) -> Result<PathBuf> {
+    configured.cloned().map_or_else(default_database_path, Ok)
+}
+
+fn validate_project(file: &PathBuf) -> Result<()> {
+    let bytes = fs::read(file).context("could not read the project registration file")?;
+    let registration: ProjectRegistration =
+        serde_json::from_slice(&bytes).context("invalid project registration JSON")?;
+    ProjectRegistry::validate(&registration)?;
+    println!("valid project={}", registration.project_id);
+    Ok(())
 }
 
 fn default_database_path() -> Result<PathBuf> {

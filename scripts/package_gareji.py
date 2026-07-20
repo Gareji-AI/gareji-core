@@ -123,7 +123,13 @@ def stage_distribution(
         ignore=ignore_plugin_runtime,
     )
 
-    for relative in ("README.md", "LICENSE", "NOTICE", "docs/setup-v0.md"):
+    for relative in (
+        "README.md",
+        "LICENSE",
+        "NOTICE",
+        "docs/setup-v0.md",
+        "docs/platform-layout-v0.md",
+    ):
         source = repo_root / relative
         if source.is_file():
             destination = staging / relative

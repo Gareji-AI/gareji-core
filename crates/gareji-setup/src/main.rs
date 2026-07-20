@@ -7,8 +7,9 @@ use std::process::ExitCode;
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use gareji_bootstrap::{
-    default_data_dir, discover_marketplace_root, doctor, setup, status, DoctorRequest, SetupReport,
-    SetupRequest, StatusReport, StatusRequest, StepStatus, SystemCommandRunner,
+    core_binary_name, default_data_dir, discover_marketplace_root, doctor, setup, status,
+    DoctorRequest, InstallationContext, SetupReport, SetupRequest, StatusReport, StatusRequest,
+    StepStatus, SystemCommandRunner,
 };
 
 #[derive(Debug, Parser)]
@@ -127,11 +128,13 @@ fn run(cli: &Cli) -> Result<bool> {
         Commands::Doctor(args) => {
             let report = doctor(
                 &DoctorRequest {
-                    install_dir: args
-                        .install_dir
-                        .clone()
-                        .map_or_else(default_install_dir, Ok)?,
-                    codex_binary: resolve_command(&args.codex_bin)?,
+                    installation: InstallationContext {
+                        install_dir: args
+                            .install_dir
+                            .clone()
+                            .map_or_else(default_install_dir, Ok)?,
+                        codex_binary: resolve_command(&args.codex_bin)?,
+                    },
                     project_id: args.project_id.clone(),
                 },
                 &mut runner,
@@ -143,11 +146,13 @@ fn run(cli: &Cli) -> Result<bool> {
             let report = status(
                 &StatusRequest {
                     workspace: args.workspace.clone(),
-                    install_dir: args
-                        .install_dir
-                        .clone()
-                        .map_or_else(default_install_dir, Ok)?,
-                    codex_binary: resolve_command(&args.codex_bin)?,
+                    installation: InstallationContext {
+                        install_dir: args
+                            .install_dir
+                            .clone()
+                            .map_or_else(default_install_dir, Ok)?,
+                        codex_binary: resolve_command(&args.codex_bin)?,
+                    },
                     limit: args.limit,
                 },
                 &mut runner,
@@ -179,11 +184,13 @@ fn setup_request(args: &SetupArgs) -> Result<SetupRequest> {
             Some(path) => path.clone(),
             None => discover_core_source(&executable)?,
         },
-        install_dir: args
-            .install_dir
-            .clone()
-            .map_or_else(default_install_dir, Ok)?,
-        codex_binary: resolve_command(&args.codex_bin)?,
+        installation: InstallationContext {
+            install_dir: args
+                .install_dir
+                .clone()
+                .map_or_else(default_install_dir, Ok)?,
+            codex_binary: resolve_command(&args.codex_bin)?,
+        },
         marketplace_root,
         dry_run: args.dry_run,
         replace_project: args.replace_project,
@@ -295,14 +302,6 @@ fn human_windows_path(path: &str) -> String {
         return format!(r"\\{path}");
     }
     path.strip_prefix(r"\\?\").unwrap_or(path).to_owned()
-}
-
-fn core_binary_name() -> &'static str {
-    if cfg!(windows) {
-        "gareji-core.exe"
-    } else {
-        "gareji-core"
-    }
 }
 
 #[cfg(test)]

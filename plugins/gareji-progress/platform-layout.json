@@ -1,0 +1,26 @@
+{
+  "windows": {
+    "primaryEnv": "LOCALAPPDATA",
+    "primarySuffix": [],
+    "fallbackEnv": null,
+    "fallbackSuffix": [],
+    "dataSuffix": ["Gareji"],
+    "coreBinary": "gareji-core.exe"
+  },
+  "macos": {
+    "primaryEnv": "HOME",
+    "primarySuffix": ["Library", "Application Support"],
+    "fallbackEnv": null,
+    "fallbackSuffix": [],
+    "dataSuffix": ["Gareji"],
+    "coreBinary": "gareji-core"
+  },
+  "linux": {
+    "primaryEnv": "XDG_DATA_HOME",
+    "primarySuffix": [],
+    "fallbackEnv": "HOME",
+    "fallbackSuffix": [".local", "share"],
+    "dataSuffix": ["Gareji"],
+    "coreBinary": "gareji-core"
+  }
+}

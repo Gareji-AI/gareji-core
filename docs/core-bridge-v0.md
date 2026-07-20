@@ -28,10 +28,11 @@ The first transport Adapter starts the Core binary as a child and keeps it alive
 Existing projects are attached explicitly from a reviewed JSON file:
 
 ```text
+gareji-core project validate --file ./project.json
 gareji-core --database ./gareji.sqlite3 project register --file ./project.json
 gareji-core --database ./gareji.sqlite3 project list
 ```
 
-See [`examples/project-registration-v0.json`](../examples/project-registration-v0.json). Registration is an idempotent create-or-replace operation. It does not mutate a repository, install Hooks, infer Work items, or publish anything.
+See [`examples/project-registration-v0.json`](../examples/project-registration-v0.json). Validation applies the same registration bounds without opening registry storage. Registration is an idempotent create-or-replace operation. It does not mutate a repository, install Hooks, infer Work items, or publish anything.
 
 The example path is deliberately synthetic. Replace it only in the reviewed local registration file and do not commit a real machine-specific path. Set `delivery_targets` to an empty list when Core's SQLite ledger is authoritative and no external write-back is required.

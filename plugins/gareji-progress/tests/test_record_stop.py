@@ -190,6 +190,26 @@ class RecordStopTests(unittest.TestCase):
             self.assertEqual(registration["execution_workspace"], "core-local")
             self.assertEqual(workspace, cwd)
 
+    def test_explicit_identity_requires_an_explicit_workspace_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cwd = Path(temporary).resolve()
+            registrations = [
+                {
+                    "project_id": "core",
+                    "execution_workspace": "core-local",
+                }
+            ]
+
+            with self.assertRaisesRegex(
+                record_stop.HookError,
+                "GAREJI_EXECUTION_WORKSPACE_PATH",
+            ):
+                record_stop.select_project(
+                    registrations,
+                    cwd,
+                    {"GAREJI_PROJECT_ID": "core"},
+                )
+
     @unittest.skipUnless(sys.platform == "win32", "Windows path representation")
     def test_matches_a_windows_verbatim_workspace_to_a_normal_cwd(self):
         with tempfile.TemporaryDirectory() as temporary:

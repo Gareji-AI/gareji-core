@@ -19,6 +19,7 @@ MAX_CHANGED_PATHS = 200
 MAX_PATH_CHARS = 512
 CORE_BRIDGE_PROTOCOL_VERSION = "gareji.core-bridge.v0"
 CHECKPOINT_SCHEMA_VERSION = "gareji.progress-checkpoint.v0"
+PLATFORM_LAYOUT = Path(__file__).resolve().parents[1] / "platform-layout.json"
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 
@@ -38,26 +39,28 @@ def resolve_core_binary(
     on_path = which("gareji-core")
     if on_path:
         return on_path
-    if sys.platform == "win32":
-        base = environ.get("LOCALAPPDATA")
-        candidate = Path(base) / "Gareji" / "bin" / "gareji-core.exe" if base else None
-    elif sys.platform == "darwin":
-        home = environ.get("HOME")
+    try:
+        layouts = json.loads(PLATFORM_LAYOUT.read_text(encoding="utf-8"))
+        platform_name = "windows" if sys.platform == "win32" else (
+            "macos" if sys.platform == "darwin" else "linux"
+        )
+        layout = layouts[platform_name]
+        base_value = environ.get(layout["primaryEnv"])
+        if base_value:
+            base = Path(base_value).joinpath(*layout["primarySuffix"])
+        else:
+            fallback = layout.get("fallbackEnv")
+            fallback_value = environ.get(fallback) if fallback else None
+            base = Path(fallback_value) if fallback_value else None
+            if base is not None:
+                base = base.joinpath(*layout["fallbackSuffix"])
         candidate = (
-            Path(home)
-            / "Library"
-            / "Application Support"
-            / "Gareji"
-            / "bin"
-            / "gareji-core"
-            if home
+            base.joinpath(*layout["dataSuffix"], "bin", layout["coreBinary"])
+            if base is not None
             else None
         )
-    else:
-        base = environ.get("XDG_DATA_HOME")
-        if not base and environ.get("HOME"):
-            base = str(Path(environ["HOME"]) / ".local" / "share")
-        candidate = Path(base) / "Gareji" / "bin" / "gareji-core" if base else None
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise HookError("the Gareji platform layout contract is invalid") from error
     if candidate is not None and candidate.is_file():
         return str(candidate)
     return "gareji-core"
@@ -130,6 +133,10 @@ def select_project(
     configured_workspace_path = environ.get("GAREJI_EXECUTION_WORKSPACE_PATH")
 
     if configured_project:
+        if not configured_workspace_path:
+            raise HookError(
+                "GAREJI_EXECUTION_WORKSPACE_PATH is required with GAREJI_PROJECT_ID"
+            )
         registration = next(
             (
                 item
@@ -140,7 +147,7 @@ def select_project(
         )
         if registration is None:
             raise HookError("the configured Gareji project is not registered")
-        workspace_path = canonical_path(configured_workspace_path or cwd)
+        workspace_path = canonical_path(configured_workspace_path)
         if not contains_path(workspace_path, cwd):
             raise HookError("the Codex working directory is outside the configured workspace")
         return registration, workspace_path

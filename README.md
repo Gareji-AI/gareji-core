@@ -35,7 +35,7 @@ See [the architecture](docs/architecture.md), [First-run setup v0](docs/setup-v0
 
 ## First-run setup
 
-Release artifacts contain the two user-facing binaries, the local Marketplace, and the Gareji Progress Plugin in one directory. Extract the archive for your platform, inspect the plan, and then apply it:
+Release artifacts contain the two user-facing binaries, the local Marketplace, and the Gareji Progress Plugin in one directory. The Stop Hook requires `python` on Windows or `python3` on Linux and macOS; Setup and Doctor verify it. Extract the archive for your platform, inspect the plan, and then apply it:
 
 ```powershell
 .\gareji setup --workspace "C:\absolute\path\to\project" --context "C:\absolute\path\to\project\PROJECT.md" --dry-run
