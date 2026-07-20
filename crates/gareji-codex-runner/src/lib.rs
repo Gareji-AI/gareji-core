@@ -543,7 +543,7 @@ fn parse_events(stream: &str) -> Result<ParsedEvents, &'static str> {
             }
             "turn.completed" => {
                 parsed.turn_completed = true;
-                parsed.usage = event.get("usage").and_then(compact_usage);
+                parsed.usage = compact_usage(event.get("usage"))?;
             }
             "turn.failed" => parsed.turn_failed = true,
             "error" => parsed.error_seen = true,
@@ -553,8 +553,11 @@ fn parse_events(stream: &str) -> Result<ParsedEvents, &'static str> {
     Ok(parsed)
 }
 
-fn compact_usage(value: &Value) -> Option<Value> {
-    let source = value.as_object()?;
+fn compact_usage(value: Option<&Value>) -> Result<Option<Value>, &'static str> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let source = value.as_object().ok_or("invalid_turn_completed")?;
     let mut usage = serde_json::Map::new();
     for field in [
         "input_tokens",
@@ -562,11 +565,14 @@ fn compact_usage(value: &Value) -> Option<Value> {
         "output_tokens",
         "reasoning_output_tokens",
     ] {
-        if let Some(value) = source.get(field).filter(|value| value.is_u64()) {
+        if let Some(value) = source.get(field) {
+            if !value.is_u64() {
+                return Err("invalid_turn_completed");
+            }
             usage.insert(field.to_owned(), value.clone());
         }
     }
-    Some(Value::Object(usage))
+    Ok(Some(Value::Object(usage)))
 }
 
 fn compact_event_payload(events: &ParsedEvents) -> Value {
@@ -799,6 +805,31 @@ mod tests {
             &report,
             RunnerFailureCategory::Protocol,
             "invalid_codex_jsonl",
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_usage_in_a_known_completion_event() {
+        let directory = tempdir().unwrap();
+        let (adapter, _) = adapter_with_output(ProcessOutput {
+            exit_code: Some(0),
+            timed_out: false,
+            stdout: bounded("{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":\"ten\"}}\n"),
+            stderr: bounded(""),
+        });
+        let mut executor = executor(adapter, &[CONTEXT_READ_CAPABILITY]);
+
+        let result = executor
+            .execute(request(directory.path(), &[CONTEXT_READ_CAPABILITY]))
+            .unwrap();
+
+        let CoreRunResult::Finished { report, .. } = result else {
+            panic!("expected finished result");
+        };
+        assert_failure(
+            &report,
+            RunnerFailureCategory::Protocol,
+            "invalid_turn_completed",
         );
     }
 
