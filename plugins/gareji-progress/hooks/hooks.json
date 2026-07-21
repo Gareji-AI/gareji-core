@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/scripts/record_stop.py\"",
+            "commandWindows": "python \"$env:PLUGIN_ROOT\\scripts\\record_stop.py\"",
+            "timeout": 30,
+            "statusMessage": "Recording Gareji progress"
+          }
+        ]
+      }
+    ]
+  }
+}

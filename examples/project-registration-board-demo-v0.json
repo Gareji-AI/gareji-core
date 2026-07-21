@@ -15,12 +15,9 @@
       "workspace_id": "sample-notes",
       "source_id": "core-brief",
       "freshness": "configured",
-      "content": "Keep trusted execution policy and operational progress durable and local.",
-      "evidence_ref": null
+      "content": null,
+      "evidence_ref": "C:\\absolute\\path\\to\\gareji-core\\CONTEXT.md"
     }
   ],
-  "delivery_targets": [
-    "local-json",
-    "local-markdown"
-  ]
+  "delivery_targets": []
 }

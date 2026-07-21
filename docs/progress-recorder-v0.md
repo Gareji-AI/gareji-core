@@ -26,13 +26,15 @@ Every destination starts as `pending`. `sync_pending` attempts `pending` and `fa
 
 The projector must be idempotent by checkpoint ID. A process failure after external success but before the SQLite update can cause the same projection to be attempted again.
 
+Projection is optional. A project with no external write-back registers an empty `delivery_targets` list; recording still persists the checkpoint as the authoritative local ledger entry. Local Markdown, GBrain, or LLMWiki paths are context references rather than projection destinations unless they require an explicit write-back contract. No production projector is required for the path-only setup.
+
 Projectors must return messages that are already safe to persist and display. The Recorder bounds their length and removes unsafe control characters; it cannot recognize or redact destination-specific secrets.
 
 ## Storage
 
 `open_sqlite(path)` creates the parent application-data directory, enables foreign keys and WAL mode, applies a five-second busy timeout, and initializes the v0 tables. `open_in_memory()` runs the same implementation for conformance tests and disposable demos. Project and Work item scope are stored as indexed ledger columns so Board-facing history reads do not scan checkpoint JSON. Existing v1 databases are backfilled locally when first opened.
 
-SQLite details remain inside the Module. Board, MCP, Runner, CLI, Hook, and Knowledge Adapters use the Recorder Interface and never issue its SQL directly.
+SQLite details remain inside the Module. Board, MCP, Runner, CLI, Hook, and any future Knowledge projection Adapter use the Recorder Interface and never issue its SQL directly.
 
 The Core copy of `schemas/progress-checkpoint-v0.schema.json` is the canonical transport schema. Board mirrors that schema so its examples and UI-facing validation can run without importing Core internals; both copies must remain JSON-equivalent.
 

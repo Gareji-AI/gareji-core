@@ -176,9 +176,9 @@ pub struct ProjectRegistration {
     pub context_sources: Vec<String>,
     /// Explicit user grants.
     pub grants: Vec<ProjectGrant>,
-    /// Context entries returned until provider Adapters are connected.
+    /// Configured context entries returned unchanged to trusted callers.
     pub sourced_context: Vec<SourcedContext>,
-    /// Projection destination identities captured at first record.
+    /// Optional projection destination identities captured at first record.
     pub delivery_targets: Vec<String>,
 }
 

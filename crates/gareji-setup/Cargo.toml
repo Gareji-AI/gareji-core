@@ -1,0 +1,31 @@
+[package]
+name = "gareji-bootstrap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "gareji"
+path = "src/main.rs"
+
+[lib]
+name = "gareji_bootstrap"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+gareji-contracts.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+which.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+
+[lints]
+workspace = true

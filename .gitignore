@@ -23,6 +23,8 @@ Thumbs.db
 /tarpaulin-report.html
 /.deny/
 /.cargo-deny/
+__pycache__/
+*.py[cod]
 
 # Secrets and local env
 .env

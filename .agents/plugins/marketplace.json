@@ -1,0 +1,20 @@
+{
+  "name": "gareji-local",
+  "interface": {
+    "displayName": "Gareji Local"
+  },
+  "plugins": [
+    {
+      "name": "gareji-progress",
+      "source": {
+        "source": "local",
+        "path": "./plugins/gareji-progress"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -13,7 +13,11 @@ The protocol discriminator is `gareji.core-bridge.v0`. Requests contain a caller
 
 Responses repeat the protocol and request identities and contain either an operation result or a stable bounded error. Raw internal errors, credentials, transcripts, diffs, and SQLite details are never returned.
 
+`get_project_context` returns the configured attributed entries unchanged. When an entry contains an absolute local Markdown path in `evidence_ref`, Core does not open, copy, index, watch, or normalize that file. The trusted caller reads the path with its existing filesystem access. GBrain and LLMWiki therefore need no Core Adapter when a path is their complete integration contract.
+
 `list_progress` returns accepted checkpoints in newest-first intake order for one registered project and optional Work item. The caller supplies a limit from 1 through 100 and may continue with the returned checkpoint cursor. Each result includes the immutable checkpoint, current per-destination delivery state, attempt count, and the latest bounded delivery error when present. Reading requires the same `write_progress` project grant as recording and inspecting one checkpoint.
+
+For local operator tooling, `gareji-core progress list --project-id <id> --limit <1-100>` exposes the same operation as a bounded JSON result. The user-facing `gareji status` command consumes that Interface; it does not read SQLite directly.
 
 The first transport Adapter starts the Core binary as a child and keeps it alive. Closing the parent pipe ends the bridge process; v0 does not install or require a background daemon.
 
@@ -24,8 +28,11 @@ The first transport Adapter starts the Core binary as a child and keeps it alive
 Existing projects are attached explicitly from a reviewed JSON file:
 
 ```text
+gareji-core project validate --file ./project.json
 gareji-core --database ./gareji.sqlite3 project register --file ./project.json
 gareji-core --database ./gareji.sqlite3 project list
 ```
 
-See [`examples/project-registration-v0.json`](../examples/project-registration-v0.json). Registration is an idempotent create-or-replace operation. It does not mutate a repository, install Hooks, infer Work items, or publish anything.
+See [`examples/project-registration-v0.json`](../examples/project-registration-v0.json). Validation applies the same registration bounds without opening registry storage. Registration is an idempotent create-or-replace operation. It does not mutate a repository, install Hooks, infer Work items, or publish anything.
+
+The example path is deliberately synthetic. Replace it only in the reviewed local registration file and do not commit a real machine-specific path. Set `delivery_targets` to an empty list when Core's SQLite ledger is authoritative and no external write-back is required.

@@ -2,7 +2,9 @@
 resolver = "2"
 members = [
     "crates/gareji-contracts",
+    "crates/gareji-codex-runner",
     "crates/gareji-core-cli",
+    "crates/gareji-setup",
     "crates/agentmesh-proto",
     "crates/agentmesh-host",
     "crates/agentmesh-cli",
@@ -19,7 +21,9 @@ members = [
 ]
 default-members = [
     "crates/gareji-contracts",
+    "crates/gareji-codex-runner",
     "crates/gareji-core-cli",
+    "crates/gareji-setup",
     "crates/agentmesh-proto",
     "crates/agentmesh-host",
     "crates/agentmesh-cli",
@@ -37,7 +41,9 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 gareji-contracts = { path = "crates/gareji-contracts" }
+gareji-codex-runner = { path = "crates/gareji-codex-runner" }
 gareji-core = { path = "crates/gareji-core" }
+gareji-bootstrap = { path = "crates/gareji-setup" }
 agentmesh-proto = { path = "crates/agentmesh-proto" }
 agentmesh-host = { path = "crates/agentmesh-host" }
 agentmesh-fixture-support = { path = "test-support/agentmesh-fixture-support" }
