@@ -16,6 +16,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 
+mod presentation;
+
+pub use presentation::{render_setup_report, render_status_report};
+
 const MAX_COMMAND_OUTPUT_BYTES: usize = 1_048_576;
 const MARKETPLACE_NAME: &str = "gareji-local";
 const PLUGIN_ID: &str = "gareji-progress@gareji-local";

@@ -75,3 +75,4 @@ Setup and the packaged Stop Hook consume one versioned platform-layout contract 
 - Raw transcripts, full diffs, credentials, and unbounded logs do not enter Compact results or Progress Checkpoints.
 - Every external side effect is attributable to a bounded Run and evidence reference.
 - Current and planned behavior are labeled separately in documentation.
+- Core ships CLI and machine-readable JSON Interfaces only; Board owns the human control surface.

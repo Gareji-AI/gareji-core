@@ -35,7 +35,7 @@ End the Codex turn, then show the result through the product Interface:
 gareji status --limit 1
 ```
 
-The screen should show all four integration layers as ready, one configured context reference, the latest checkpoint summary, and only the demo's one or two changed paths.
+The screen should show the project and overall state first, all four integration layers as ready, one configured context reference, the latest activity summary, and only the demo's one or two changed paths. The narration should describe these as bounded project facts rather than as an AI persona or an "insight" layer.
 
 ### 2:30-2:55 — Why the design matters
 

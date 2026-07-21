@@ -7,9 +7,9 @@ use std::process::ExitCode;
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use gareji_bootstrap::{
-    core_binary_name, default_data_dir, discover_marketplace_root, doctor, setup, status,
-    DoctorRequest, InstallationContext, SetupReport, SetupRequest, StatusReport, StatusRequest,
-    StepStatus, SystemCommandRunner,
+    core_binary_name, default_data_dir, discover_marketplace_root, doctor, render_setup_report,
+    render_status_report, setup, status, DoctorRequest, InstallationContext, SetupReport,
+    SetupRequest, StatusReport, StatusRequest, SystemCommandRunner,
 };
 
 #[derive(Debug, Parser)]
@@ -230,24 +230,7 @@ fn print_setup_report(report: &SetupReport, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string(report)?);
         return Ok(());
     }
-    if let Some(project_id) = &report.project_id {
-        println!("Gareji project: {project_id}");
-    }
-    for step in &report.steps {
-        let status = step_status_label(step.status.clone());
-        println!("[{status}] {}: {}", step.step, step.message);
-    }
-    if report.restart_codex {
-        println!("Next: restart Codex, then review and trust the Gareji Progress Stop Hook.");
-    } else if report
-        .steps
-        .iter()
-        .any(|step| step.status == StepStatus::Planned)
-    {
-        println!("Next: rerun this command without --dry-run to apply the setup.");
-    } else if report.healthy && report.project_id.is_some() {
-        println!("Next: work in Codex, then run `gareji status` from the project workspace.");
-    }
+    print!("{}", render_setup_report(report));
     Ok(())
 }
 
@@ -256,68 +239,6 @@ fn print_status_report(report: &StatusReport, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string(report)?);
         return Ok(());
     }
-    println!("{}", report.project_name);
-    println!("Project: {}", report.project_id);
-    println!("Workspace: {}", human_windows_path(&report.workspace));
-    println!("Context references: {}", report.context_references);
-    println!();
-    println!("System");
-    for step in &report.health.steps {
-        let status = step_status_label(step.status.clone());
-        println!("  [{status}] {}", step.message);
-    }
-    println!();
-    println!("Recent Codex progress");
-    if report.recent_activity.is_empty() {
-        println!("  No progress recorded yet.");
-        println!("  Next: complete a Codex turn in this workspace.");
-        return Ok(());
-    }
-    for activity in &report.recent_activity {
-        println!(
-            "  {} [{}] {}",
-            activity.recorded_at, activity.outcome, activity.summary
-        );
-        for path in activity.changed_paths.iter().take(5) {
-            println!("    - {path}");
-        }
-        if activity.changed_paths.len() > 5 {
-            println!("    - ... and {} more", activity.changed_paths.len() - 5);
-        }
-    }
+    print!("{}", render_status_report(report));
     Ok(())
-}
-
-fn step_status_label(status: StepStatus) -> &'static str {
-    match status {
-        StepStatus::Ready => "ready",
-        StepStatus::Changed => "changed",
-        StepStatus::Planned => "planned",
-        StepStatus::Missing => "missing",
-    }
-}
-
-fn human_windows_path(path: &str) -> String {
-    if let Some(path) = path.strip_prefix(r"\\?\UNC\") {
-        return format!(r"\\{path}");
-    }
-    path.strip_prefix(r"\\?\").unwrap_or(path).to_owned()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn human_windows_path_removes_verbatim_prefixes() {
-        assert_eq!(
-            human_windows_path(r"\\?\C:\Garage\Project"),
-            r"C:\Garage\Project"
-        );
-        assert_eq!(
-            human_windows_path(r"\\?\UNC\server\share\Project"),
-            r"\\server\share\Project"
-        );
-        assert_eq!(human_windows_path("/work/project"), "/work/project");
-    }
 }
