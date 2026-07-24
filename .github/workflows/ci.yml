@@ -54,7 +54,7 @@ jobs:
       - name: Package and smoke-test Gareji
         run: python scripts/package_gareji.py --target ${{ matrix.target }} --release-dir target/${{ matrix.target }}/release --output-dir dist --smoke-test
       - name: Upload Gareji distribution
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gareji-${{ matrix.target }}
           path: |
